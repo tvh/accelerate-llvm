@@ -202,10 +202,7 @@ mkScanl1Post aenv combine inD tmpD =
 
             for $type:intType %k in 0 to %i with $types:ty_acc %x1 as %x
             {
-                %i1 = sub $type:(intType) %i, 1
-                br label %nextblock
-
-                $bbsM:("a" .=. delayedLinearIndex tmpD ("i1" :: [Operand]))
+                $bbsM:("a" .=. delayedLinearIndex tmpD ("k" :: [Operand]))
                 $bbsM:("b" .=. combine ("x" :: Name) ("a" :: Name))
                 $bbsM:(execRet $ return "b")
             }
@@ -277,7 +274,7 @@ mkScanr1Seq aenv combine IRDelayed{..} =
       ty_acc                    = llvmOfTupleType (eltType (undefined::e))
   in
   makeKernelQ "scanr1Seq" [llgM|
-    define void @scanl1Seq
+    define void @scanr1Seq
     (
         $params:paramGang,
         $params:paramOut,
@@ -319,7 +316,7 @@ mkScanr1Pre aenv combine IRDelayed{..} =
       ty_acc                    = llvmOfTupleType (eltType (undefined::e))
   in
   makeKernelQ "scanr1Pre" [llgM|
-    define void @scanl1Pre
+    define void @scanr1Pre
     (
         $params:paramGang,
         $type:intType %chunkSize,
@@ -372,7 +369,7 @@ mkScanr1Post aenv combine inD tmpD =
       ty_acc                    = llvmOfTupleType (eltType (undefined::e))
   in
   makeKernelQ "scanr1Post" [llgM|
-    define void @scanl1Post
+    define void @scanr1Post
     (
         $params:paramGang ,
         $type:intType %lastChunk,
@@ -385,9 +382,10 @@ mkScanr1Post aenv combine inD tmpD =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            %ix_   = mul $type:intType %i,  %chunkSize
-            %ix    = sub $type:intType %sz, %ix_
-            %last1 = sub $type:intType %ix, %chunkSize
+            %ix_   = mul $type:intType %i,   %chunkSize
+            %ix1   = sub $type:intType %sz,  %ix_
+            %ix    = sub $type:intType %ix1, 1
+            %last1 = sub $type:intType %ix,  %chunkSize
             %c1    = icmp eq $type:intType %i, %lastChunk
             %last  = select i1 %c1, $type:intType -1, $type:intType %last1
             br label %nextblock
@@ -397,10 +395,7 @@ mkScanr1Post aenv combine inD tmpD =
 
             for $type:intType %k in 0 to %i with $types:ty_acc %x1 as %x
             {
-                %i1 = sub $type:(intType) %i, 1
-                br label %nextblock
-
-                $bbsM:("a" .=. delayedLinearIndex tmpD ("i1" :: [Operand]))
+                $bbsM:("a" .=. delayedLinearIndex tmpD ("k" :: [Operand]))
                 $bbsM:("b" .=. combine ("x" :: Name) ("a" :: Name))
                 $bbsM:(execRet $ return "b")
             }
