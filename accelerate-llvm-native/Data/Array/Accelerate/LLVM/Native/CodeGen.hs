@@ -31,6 +31,7 @@ instance Skeleton Native where
   fold _        = mkFold
   fold1 _       = mkFold1
   permute _     = mkPermute
+  scanl _       = mkScanl
   scanl1 _      = mkScanl1
   scanr1 _      = mkScanr1
 

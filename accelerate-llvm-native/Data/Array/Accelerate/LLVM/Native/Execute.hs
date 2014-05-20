@@ -91,6 +91,7 @@ instance Execute Native where
   fold          = foldOp
   fold1         = fold1Op
   permute       = permuteOp
+  scanl         = scanlOp
   scanl1        = scanl1Op
   scanr1        = scanr1Op
 
@@ -198,6 +199,45 @@ permuteOp kernel gamma aenv () shIn dfs = do
     executeOp native kernel mempty gamma aenv (IE 0 (size shIn)) (barrier, out)
   return out
 
+-- Left inclusive scan
+--
+scanlOp
+    :: forall aenv e. Elt e
+    => ExecutableR Native
+    -> Gamma aenv
+    -> Aval aenv
+    -> Stream
+    -> DIM1
+    -> LLVM Native (Vector e)
+scanlOp (NativeR k) gamma aenv () (Z :. sz) = do
+  native@Native{..} <- gets llvmTarget
+
+  -- sequential reduction
+  if gangSize theGang == 1 || sz < defaultLargePPT
+     then do let out = allocateArray (Z :. sz+1)
+             --
+             liftIO $ do
+               executeNamedFunction k "scanlSeq" $ \f ->
+                 callFFI f retVoid =<< marshal native () (0::Int, sz, out, (gamma,aenv))
+
+             return out
+
+  -- Parallel reduction
+     else do let chunkSize = defaultLargePPT
+                 chunks    = sz `div` chunkSize
+                 tmp       = allocateArray (Z :. (chunks-1)) :: Vector e
+                 out       = allocateArray (Z :. sz+1)
+             --
+             liftIO $ do
+               executeNamedFunction k "scanl1Pre"           $ \f -> do
+                 runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
+                   callFFI f retVoid =<< marshal native () (start,end,chunkSize,tmp,(gamma,aenv))
+
+               executeNamedFunction k "scanlPost"          $ \f ->
+                 runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
+                   callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,(gamma,aenv))
+
+             return out
 
 -- Left inclusive scan
 --
