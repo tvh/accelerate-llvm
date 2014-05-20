@@ -177,6 +177,7 @@ class Skeleton arch where
                 -> Gamma aenv
                 -> IRFun1 aenv (stencil -> b)
                 -> Boundary (IRExp aenv a)
+                -> IRDelayed aenv (Array sh a)
                 -> CodeGen [Kernel arch aenv (Array sh b)]
 
   stencil2      :: Elt c        -- (Elt a, Elt b, Stencil sh a stencil1, Stencil sh b stencil2)
@@ -184,7 +185,9 @@ class Skeleton arch where
                 -> Gamma aenv
                 -> IRFun2 aenv (stencil1 -> stencil2 -> c)
                 -> Boundary (IRExp aenv a)
+                -> IRDelayed aenv (Array sh a)
                 -> Boundary (IRExp aenv b)
+                -> IRDelayed aenv (Array sh b)
                 -> CodeGen [Kernel arch aenv (Array sh c)]
 
 
@@ -216,8 +219,8 @@ llvmOfAcc arch (Manifest pacc) aenv = runLLVM $
     Scanr' f z a            -> scanr' arch aenv (travF2 f) (travE z) (travD a)
     Scanr1 f a              -> scanr1 arch aenv (travF2 f) (travD a)
     Permute f _ p a         -> permute arch aenv (travF2 f) (travF1 p) (travD a)
-    Stencil f b a           -> stencil arch aenv (travF1 f) (travB a b)
-    Stencil2 f b1 a1 b2 a2  -> stencil2 arch aenv (travF2 f) (travB a1 b1) (travB a2 b2)
+    Stencil f b a           -> stencil arch aenv (travF1 f) (travB a b) (travD a)
+    Stencil2 f b1 a1 b2 a2  -> stencil2 arch aenv (travF2 f) (travB a1 b1) (travD a1) (travB a2 b2) (travD a2) 
 
     -- Non-computation forms: sadness
     Alet{}                  -> unexpectedError pacc
