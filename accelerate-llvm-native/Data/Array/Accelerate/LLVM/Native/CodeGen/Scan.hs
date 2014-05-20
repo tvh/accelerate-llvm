@@ -12,6 +12,8 @@
 module Data.Array.Accelerate.LLVM.Native.CodeGen.Scan (
 
   mkScanl,
+  mkScanr,
+  
   mkScanl1,
   mkScanr1
 
@@ -181,6 +183,155 @@ mkScanlPost aenv combine seed inD tmpD =
                 $bbsM:("y" .=. delayedLinearIndex inD ("j" :: [Operand]))
                 $bbsM:("z" .=. (combine ("acc" :: Name) ("y" :: Name)))
                 $bbsM:(exec    $ writeArray arrOut "j1" ("z" :: Name))
+                $bbsM:(execRet $ return "z")
+            }
+            ret void
+        }
+        ret void
+    }
+  |]
+
+-- Inclusive scan, which returns an array of successive reduced values from the
+-- right.
+--
+mkScanr
+    :: forall t aenv e. (Elt e)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Vector e)
+    -> CodeGen [Kernel t aenv (Vector e)]
+mkScanr aenv f s a =
+  let
+      single [i]        = i
+      single _          = $internalError "single" "expected single expression"
+
+      arrTmp            = arrayData  (undefined::Vector e) "tmp"
+      shTmp             = arrayShape (undefined::Vector e) "tmp"
+      tmp               = IRDelayed {
+          delayedExtent      = return (map local shTmp)
+        , delayedLinearIndex = readArray arrTmp . single <=< toIRExp
+        , delayedIndex       = $internalError "mkScanr" "linear indexing of temporary array only"
+        }
+  in do
+  [k1] <- mkScanrSeq aenv f s a
+  [k2] <- mkScanr1Pre aenv f a
+  [k3] <- mkScanrPost aenv f s a tmp
+  return [k1,k2,k3]
+
+
+-- Sequential inclusive right scan
+--
+mkScanrSeq
+    :: forall t aenv e. (Elt e)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Vector e)
+    -> CodeGen [Kernel t aenv (Vector e)]
+mkScanrSeq aenv combine seed IRDelayed{..} =
+  let
+      (start, end, paramGang)   = gangParam
+      paramEnv                  = envParam aenv
+      arrOut                    = arrayData  (undefined::Vector e) "out"
+      paramOut                  = arrayParam (undefined::Vector e) "out"
+      intType                   = typeOf (integralType :: IntegralType Int)
+
+      ty_acc                    = llvmOfTupleType (eltType (undefined::e))
+  in
+  makeKernelQ "scanrSeq" [llgM|
+    define void @scanrSeq
+    (
+        $params:paramGang,
+        $params:paramOut,
+        $params:paramEnv
+    )
+    {
+        %start1 = add $type:intType $opr:start, 1
+        br label %nextblock
+        
+        $bbsM:("x" .=. seed)
+        $bbsM:(exec $ writeArray arrOut "start1" ("x" :: Name))
+
+        for:
+          for $type:intType %i in $opr:start downto $opr:end with $types:ty_acc %x as %acc
+          {
+              $bbsM:("y" .=. delayedLinearIndex ("i" :: [Operand]))
+              $bbsM:("z" .=. combine ("acc" :: Name) ("y" :: Name))
+              $bbsM:(exec    $ writeArray arrOut "i" ("z" :: Name))
+              $bbsM:(execRet $ return "z")
+          }
+          ret void
+    }
+  |]
+
+
+mkScanrPost
+    :: forall t aenv e. (Elt e)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Vector e)
+    -> IRDelayed aenv (Vector e)
+    -> CodeGen [Kernel t aenv (Vector e)]
+mkScanrPost aenv combine seed inD tmpD =
+  let
+      (start, end, paramGang)   = gangParam
+      paramEnv                  = envParam aenv
+      paramTmp                  = arrayParam (undefined::Vector e) "tmp"
+      arrOut                    = arrayData  (undefined::Vector e) "out"
+      paramOut                  = arrayParam (undefined::Vector e) "out"
+      intType                   = (typeOf (integralType :: IntegralType Int))
+
+      ty_acc                    = llvmOfTupleType (eltType (undefined::e))
+  in
+  makeKernelQ "scanrPost" [llgM|
+    define void @scanrPost
+    (
+        $params:paramGang ,
+        $type:intType %lastChunk,
+        $type:intType %chunkSize,
+        $type:intType %sz,
+        $params:paramTmp,
+        $params:paramOut,
+        $params:paramEnv
+    )
+    {
+        for $type:intType %i in $opr:start to $opr:end
+        {
+            %ix_   = mul $type:intType %i,   %chunkSize
+            %ix1   = sub $type:intType %sz,  %ix_
+            %ix    = sub $type:intType %ix1, 1
+            %last_ = sub $type:intType %ix,  %chunkSize
+            %c1    = icmp eq $type:intType %i, %lastChunk
+            %last  = select i1 %c1, $type:intType -1, $type:intType %last_
+            br label %nextblock
+
+            ;; sum up the partial sums to get the first element
+            $bbsM:("x1" .=. seed)
+
+            for $type:intType %k in 0 to %i with $types:ty_acc %x1 as %x
+            {
+                $bbsM:("a" .=. delayedLinearIndex tmpD ("k" :: [Operand]))
+                $bbsM:("b" .=. combine ("x" :: Name) ("a" :: Name))
+                $bbsM:(execRet $ return "b")
+            }
+            
+            ;; check if this is the first chunk
+            %c2 = icmp eq $type:intType %i, 0
+            br i1 %c2, label %if.then, label %reduce
+
+            ;; if it is, then write the seed element
+            if.then:
+            br label %nextblock
+            $bbsM:(exec $ writeArray arrOut "ix1" ("x1" :: Name))
+
+          reduce:
+            for $type:intType %j in %ix downto %last with $types:ty_acc %x as %acc
+            {
+                $bbsM:("y" .=. delayedLinearIndex inD ("j" :: [Operand]))
+                $bbsM:("z" .=. (combine ("acc" :: Name) ("y" :: Name)))
+                $bbsM:(exec    $ writeArray arrOut "j" ("z" :: Name))
                 $bbsM:(execRet $ return "z")
             }
             ret void
