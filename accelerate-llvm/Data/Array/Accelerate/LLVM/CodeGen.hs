@@ -172,17 +172,19 @@ class Skeleton arch where
                 -> CodeGen [Kernel arch aenv (Array sh' e)]
   backpermute = defaultBackpermute
 
-  stencil       :: Elt b        -- (Elt a, Stencil sh a stencil)
+  stencil       :: (Elt a, Elt b, Stencil sh a stencil)
                 => arch
                 -> Gamma aenv
+                -> stencil      -- ignored, is used to fix the types
                 -> IRFun1 aenv (stencil -> b)
                 -> Boundary (IRExp aenv a)
                 -> IRDelayed aenv (Array sh a)
                 -> CodeGen [Kernel arch aenv (Array sh b)]
 
-  stencil2      :: Elt c        -- (Elt a, Elt b, Stencil sh a stencil1, Stencil sh b stencil2)
+  stencil2      :: (Elt a, Elt b, Elt c, Stencil sh a stencil1, Stencil sh b stencil2)
                 => arch
                 -> Gamma aenv
+                -> (stencil1, stencil2)      -- ignored, is used to fix the types
                 -> IRFun2 aenv (stencil1 -> stencil2 -> c)
                 -> Boundary (IRExp aenv a)
                 -> IRDelayed aenv (Array sh a)
@@ -219,8 +221,8 @@ llvmOfAcc arch (Manifest pacc) aenv = runLLVM $
     Scanr' f z a            -> scanr' arch aenv (travF2 f) (travE z) (travD a)
     Scanr1 f a              -> scanr1 arch aenv (travF2 f) (travD a)
     Permute f _ p a         -> permute arch aenv (travF2 f) (travF1 p) (travD a)
-    Stencil f b a           -> stencil arch aenv (travF1 f) (travB a b) (travD a)
-    Stencil2 f b1 a1 b2 a2  -> stencil2 arch aenv (travF2 f) (travB a1 b1) (travD a1) (travB a2 b2) (travD a2) 
+    Stencil f b a           -> stencil arch aenv (travS1 f) (travF1 f) (travB a b) (travD a)
+    Stencil2 f b1 a1 b2 a2  -> stencil2 arch aenv (travS2 f) (travF2 f) (travB a1 b1) (travD a1) (travB a2 b2) (travD a2) 
 
     -- Non-computation forms: sadness
     Alet{}                  -> unexpectedError pacc
@@ -265,6 +267,12 @@ llvmOfAcc arch (Manifest pacc) aenv = runLLVM $
     travB _ (Constant c)
       = Constant $ return
       $ P.map constOp (constant (eltType (undefined::e)) c)
+
+    travS1 :: DelayedFun aenv (a -> b) -> a
+    travS1 _ = undefined
+
+    travS2 :: DelayedFun aenv (a -> b -> c) -> (a, b)
+    travS2 _ = (undefined, undefined)
 
     -- sadness
     unexpectedError x   = $internalError "llvmOfAcc" $ "unexpected array primitive: " ++ showPreAccOp x
