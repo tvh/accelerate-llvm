@@ -51,16 +51,11 @@ import Control.Monad.State
 -- blocks.
 --
 llvmOfFun1 :: DelayedFun aenv (a -> b) -> Gamma aenv -> IRFun1 aenv (a -> b)
-llvmOfFun1 (Lam (Body f)) aenv xs = do
-  xs' <- toIRExp xs
-  llvmOfOpenExp f (Empty `Push` xs') aenv
+llvmOfFun1 (Lam (Body f)) aenv xs = llvmOfOpenExp f (Empty `Push` xs) aenv
 llvmOfFun1 _              _    _  = error "dooo~ you knoooow~ what it's liiike"
 
 llvmOfFun2 :: DelayedFun aenv (a -> b -> c) -> Gamma aenv -> IRFun2 aenv (a -> b -> c)
-llvmOfFun2 (Lam (Lam (Body f))) aenv xs ys = do
-  xs' <- toIRExp xs
-  ys' <- toIRExp ys
-  llvmOfOpenExp f (Empty `Push` xs' `Push` ys') aenv
+llvmOfFun2 (Lam (Lam (Body f))) aenv xs ys = llvmOfOpenExp f (Empty `Push` xs `Push` ys) aenv
 llvmOfFun2 _                    _    _  _  = error "when the world seems to chaaaange~ overniiight"
 
 
@@ -242,7 +237,7 @@ llvmOfOpenExp exp env aenv = cvtE exp env
       -- resulting from the phi node we will add to the top of the loop. We
       -- can't use recursive do because the monadic effects are recursive.
       ns   <- mapM (const freshName) ty
-      let prev = map local ns
+      let prev = zipWith local ty ns
 
       -- Now generate the loop body. Afterwards, we insert a phi node at the
       -- head of the instruction stream, which selects the input value depending
@@ -344,8 +339,8 @@ llvmOfOpenExp exp env aenv = cvtE exp env
           -> CodeGen (IR env aenv e)
     index (Manifest (Avar v)) ix env = do
       let name  = aprj v aenv
-          ad    = arrayData  (undefined::Array sh e) name
-          sh    = arrayShape (undefined::Array sh e) name
+          ad    = arrayDataOp  (undefined::Array sh e) name
+          sh    = arrayShapeOp (undefined::Array sh e) name
       --
       ix' <- cvtE ix env
       i   <- intOfIndex sh ix'
@@ -360,7 +355,7 @@ llvmOfOpenExp exp env aenv = cvtE exp env
                 -> CodeGen (IR env aenv e)
     linearIndex (Manifest (Avar v)) ix env = do
       let name  = aprj v aenv
-          ad    = arrayData  (undefined::Array sh e) name
+          ad    = arrayDataOp (undefined::Array sh e) name
       --
       i   <- single "linearIndex" `fmap` cvtE ix env
       readArray ad i
@@ -375,9 +370,9 @@ llvmOfOpenExp exp env aenv = cvtE exp env
           -> CodeGen (IR env aenv sh)
     shape (Manifest (Avar v)) =
       let name  = aprj v aenv
-          sh    = arrayShape (undefined::Array sh e) name
+          sh    = arrayShapeOp (undefined::Array sh e) name
       in
-      return (map local sh)
+      return sh
     shape _ =
       $internalError "shape" "expected array variable"
 
@@ -421,33 +416,33 @@ llvmOfOpenExp exp env aenv = cvtE exp env
 -- Read a value from an array.
 -- TODO: attach metedata node "!invariant.load" ?
 --
-readArray :: [Name] -> Operand -> CodeGen [Operand]
+readArray :: [Operand] -> Operand -> CodeGen [Operand]
 readArray = readArray' False
 
-readVolatileArray :: [Name] -> Operand -> CodeGen [Operand]
+readVolatileArray :: [Operand] -> Operand -> CodeGen [Operand]
 readVolatileArray = readArray' True
 
-readArray' :: Bool -> [Name] -> Operand -> CodeGen [Operand]
+readArray' :: Bool -> [Operand] -> Operand -> CodeGen [Operand]
 readArray' volatile arr i =
   forM arr $ \a -> do
-    p <- instr $ GetElementPtr False (local a) [i] []
-    v <- instr $ Load volatile p Nothing 0 []
+    let t = typeOfOperand a
+    p <- instr t $ GetElementPtr False a [i] []
+    v <- instr (pointerReferent t) $ Load volatile p Nothing 0 []
     return v
 
 -- Write elements into an array.
 --
-writeArray :: IROperand a => [Name] -> Operand -> a -> CodeGen ()
+writeArray :: [Operand] -> Operand -> [Operand] -> CodeGen ()
 writeArray = writeArray' False
 
-writeVolatileArray :: IROperand a => [Name] -> Operand -> a -> CodeGen ()
+writeVolatileArray :: [Operand] -> Operand -> [Operand] -> CodeGen ()
 writeVolatileArray = writeArray' True
 
-writeArray' :: IROperand a => Bool -> [Name] -> Operand -> a -> CodeGen ()
-writeArray' volatile arr i val' = do
-  val <- toIRExp val'
+writeArray' :: Bool -> [Operand] -> Operand -> [Operand] -> CodeGen ()
+writeArray' volatile arr i val = do
   zipWithM_ (\a v -> do
-    p <- instr $ GetElementPtr False (local a) [i] []
-    do_        $ Store volatile p v Nothing 0 []) arr val
+    p <- instr (typeOfOperand v) $ GetElementPtr False a [i] []
+    do_                          $ Store volatile p v Nothing 0 []) arr val
 
 -- Convert a multidimensional array index into a linear index
 --

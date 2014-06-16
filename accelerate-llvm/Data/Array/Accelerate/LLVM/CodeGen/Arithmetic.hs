@@ -94,16 +94,16 @@ mathf n f args = do
 -- -------------------
 
 add :: NumType a -> Operand -> Operand -> CodeGen Operand
-add (IntegralNumType _) x y = instr $ Add nuw nsw x y []
-add (FloatingNumType _) x y = instr $ FAdd fmflags x y []
+add (IntegralNumType i) x y = instr (typeOf i) $ Add nuw nsw x y []
+add (FloatingNumType f) x y = instr (typeOf f) $ FAdd fmflags x y []
 
 sub :: NumType a -> Operand -> Operand -> CodeGen Operand
-sub (IntegralNumType _) x y = instr $ Sub nuw nsw x y []
-sub (FloatingNumType _) x y = instr $ FSub fmflags x y []
+sub (IntegralNumType i) x y = instr (typeOf i) $ Sub nuw nsw x y []
+sub (FloatingNumType f) x y = instr (typeOf f) $ FSub fmflags x y []
 
 mul :: NumType a -> Operand -> Operand -> CodeGen Operand
-mul (IntegralNumType _) x y = instr $ Mul nuw nsw x y []
-mul (FloatingNumType _) x y = instr $ FMul fmflags x y []
+mul (IntegralNumType i) x y = instr (typeOf i) $ Mul nuw nsw x y []
+mul (FloatingNumType f) x y = instr (typeOf f) $ FMul fmflags x y []
 
 negate :: forall a. NumType a -> Operand -> CodeGen Operand
 negate t x =
@@ -158,13 +158,13 @@ signum' t x = do
 
 quot :: IntegralType a -> Operand -> Operand -> CodeGen Operand
 quot t x y
-  | signedIntegralNum t = instr $ SDiv False x y []
-  | otherwise           = instr $ UDiv False x y []
+  | signedIntegralNum t = instr (typeOf t) $ SDiv False x y []
+  | otherwise           = instr (typeOf t) $ UDiv False x y []
 
 rem :: IntegralType a -> Operand -> Operand -> CodeGen Operand
 rem t x y
-  | signedIntegralNum t = instr $ SRem x y []
-  | otherwise           = instr $ URem x y []
+  | signedIntegralNum t = instr (typeOf t) $ SRem x y []
+  | otherwise           = instr (typeOf t) $ URem x y []
 
 -- Integer division, truncated towards negative infinity
 --
@@ -242,7 +242,7 @@ mod t x y
       setBlock ifTrue
       c3        <- eq t' r zero
       v'        <- add (IntegralNumType t) r y
-      v         <- instr $ Select c3 zero v' []
+      v         <- instr (typeOf t) $ Select c3 zero v' []
       true      <- br ifEnd
 
       setBlock ifEnd
@@ -250,13 +250,13 @@ mod t x y
 
 
 band :: IntegralType a -> Operand -> Operand -> CodeGen Operand
-band _ x y = instr $ And x y []
+band t x y = instr (typeOf t) $ And x y []
 
 bor :: IntegralType a -> Operand -> Operand -> CodeGen Operand
-bor _ x y = instr $ Or x y []
+bor t x y = instr (typeOf t) $ Or x y []
 
 xor :: IntegralType a -> Operand -> Operand -> CodeGen Operand
-xor _ x y = instr $ Xor x y []
+xor t x y = instr (typeOf t) $ Xor x y []
 
 complement :: IntegralType a -> Operand -> CodeGen Operand
 complement t x | IntegralDict <- integralDict t = xor t x (constOp (integral t (-1)))
@@ -264,14 +264,14 @@ complement t x | IntegralDict <- integralDict t = xor t x (constOp (integral t (
 shiftL :: IntegralType a -> Operand -> Operand -> CodeGen Operand
 shiftL t x i = do
   i'   <- fromIntegral int (IntegralNumType t) i
-  instr $ Shl nsw nuw x i' []
+  instr (typeOf t) $ Shl nsw nuw x i' []
 
 shiftR :: IntegralType a -> Operand -> Operand -> CodeGen Operand
 shiftR t x i = do
   i'   <- fromIntegral int (IntegralNumType t) i
-  instr $ if signedIntegralNum t
-             then AShr False x i' []
-             else LShr False x i' []
+  instr (typeOf t) $ if signedIntegralNum t
+                        then AShr False x i' []
+                        else LShr False x i' []
 
 rotateL :: IntegralType a -> Operand -> Operand -> CodeGen Operand
 rotateL t x i | IntegralDict <- integralDict t = do
@@ -281,7 +281,7 @@ rotateL t x i | IntegralDict <- integralDict t = do
   v1    <- band t i' (constOp $ integral t (bits - 1))
   v2    <- shiftL t x v1
   v3    <- sub (IntegralNumType t) (constOp $ integral t bits) v1
-  v4    <- instr $ LShr False x v3 []           -- require unsigned shift here
+  v4    <- instr (typeOf t) $ LShr False x v3 []           -- require unsigned shift here
   bor t v4 v2
 
 
@@ -291,7 +291,7 @@ rotateR t x i | IntegralDict <- integralDict t = do
   --
   i'    <- fromIntegral int (IntegralNumType t) i
   v1    <- band t i' (constOp $ integral t (bits - 1))
-  v2    <- instr $ LShr False x v1 []           -- require unsigned shift here
+  v2    <- instr (typeOf t) $ LShr False x v1 []           -- require unsigned shift here
   v3    <- sub (IntegralNumType t) (constOp $ integral t bits) v1
   v4    <- shiftL t x v3
   bor t v4 v2
@@ -301,7 +301,7 @@ rotateR t x i | IntegralDict <- integralDict t = do
 -- ---------------------------------------------------------
 
 fdiv :: FloatingType a -> Operand -> Operand -> CodeGen Operand
-fdiv _ x y = instr $ FDiv fmflags x y []
+fdiv t x y = instr (typeOf t) $ FDiv fmflags x y []
 
 recip :: FloatingType a -> Operand -> CodeGen Operand
 recip t x | FloatingDict <- floatingDict t = fdiv t (constOp (floating t (-1))) x
@@ -361,8 +361,8 @@ logBase' t x y
 
 truncate :: FloatingType a -> IntegralType b -> Operand -> CodeGen Operand
 truncate _ i x
-  | signedIntegralNum i = instr $ FPToSI x (typeOf i) []
-  | otherwise           = instr $ FPToUI x (typeOf i) []
+  | signedIntegralNum i = let t = (typeOf i) in instr t $ FPToSI x t []
+  | otherwise           = let t = (typeOf i) in instr t $ FPToUI x t []
 
 round :: FloatingType a -> IntegralType b -> Operand -> CodeGen Operand
 round tf ti x = do
@@ -408,30 +408,33 @@ max ty x y =
   case ty of
     NumScalarType (FloatingNumType f)   -> mathf "fmax" f [x,y]
     _                                   -> do c <- gte ty x y
-                                              instr $ Select c x y []
+                                              instr (typeOf ty) $ Select c x y []
 
 min :: ScalarType a -> Operand -> Operand -> CodeGen Operand
 min ty x y =
   case ty of
     NumScalarType (FloatingNumType f)   -> mathf "fmin" f [x,y]
     _                                   -> do c <- lte ty x y
-                                              instr $ Select c x y []
+                                              instr (typeOf ty) $ Select c x y []
 
 cmp :: Predicate -> ScalarType t -> Operand -> Operand -> CodeGen Operand
 cmp op ty x y =
   case ty of
-    NumScalarType (FloatingNumType _) -> instr $ FCmp (floatingP op) x y []
+    NumScalarType (FloatingNumType _) -> instr i1 $ FCmp (floatingP op) x y []
 
     NumScalarType (IntegralNumType i)
-      | signedIntegralNum i           -> instr $ ICmp (signedP op) x y []
-      | otherwise                     -> instr $ ICmp (unsignedP op) x y []
+      | signedIntegralNum i           -> instr i1 $ ICmp (signedP op) x y []
+      | otherwise                     -> instr i1 $ ICmp (unsignedP op) x y []
 
-    NonNumScalarType (TypeBool _)     -> instr $ ICmp (unsignedP op) x y []
-    NonNumScalarType (TypeChar _)     -> instr $ ICmp (unsignedP op) x y []
-    NonNumScalarType (TypeCUChar _)   -> instr $ ICmp (unsignedP op) x y []
-    NonNumScalarType (TypeCSChar _)   -> instr $ ICmp (signedP op) x y []
-    NonNumScalarType (TypeCChar _)    -> instr $ ICmp (signedP op) x y []
+    NonNumScalarType (TypeBool _)     -> instr i1 $ ICmp (unsignedP op) x y []
+    NonNumScalarType (TypeChar _)     -> instr i1 $ ICmp (unsignedP op) x y []
+    NonNumScalarType (TypeCUChar _)   -> instr i1 $ ICmp (unsignedP op) x y []
+    NonNumScalarType (TypeCSChar _)   -> instr i1 $ ICmp (signedP op) x y []
+    NonNumScalarType (TypeCChar _)    -> instr i1 $ ICmp (signedP op) x y []
   where
+    i1 :: Type
+    i1 = IntegerType 1
+
     signedP :: Predicate -> IP.IntegerPredicate
     signedP EQ = IP.EQ
     signedP NE = IP.NE
@@ -466,14 +469,14 @@ land x y = do
   --
   u    <- neq i1 x false
   v    <- neq i1 y false
-  instr $ And u v []
+  instr (typeOf i1) $ And u v []
 
 lor  :: Operand -> Operand -> CodeGen Operand
 lor x y = do
   let i1   = scalarType :: ScalarType Bool
       false = constOp (scalar i1 False)
   --
-  u <- instr $ Or x y []
+  u <- instr (typeOfOperand x) $ Or x y []
   neq i1 u false
 
 lnot :: Operand -> CodeGen Operand
@@ -491,26 +494,26 @@ lnot x =
 -- allowed
 --
 trunc :: ScalarType a -> Operand -> CodeGen Operand
-trunc t x = instr $ Trunc x (typeOf t) []
+trunc t x = let t' = typeOf t in instr t' $ Trunc x t' []
 
 -- Sign extend a value to the given type. The bit size of the value must be
 -- smaller than the bit size of the destination type.
 --
 sext :: ScalarType a -> Operand -> CodeGen Operand
-sext t x = instr $ SExt x (typeOf t) []
+sext t x = let t' = typeOf t in instr t' $ SExt x t' []
 
 -- Zero extend a value to the given type. The bit size of the value must be
 -- smaller than the bit size of the destination type.
 --
 zext :: ScalarType a -> Operand -> CodeGen Operand
-zext t x = instr $ ZExt x (typeOf t) []
+zext t x = let t' = typeOf t in instr t' $ ZExt x t' []
 
 
 ord :: Operand -> CodeGen Operand
 ord x =
   case bitSize (undefined :: Int) of
     32 -> return x
-    64 -> instr $ SExt x (typeOf (integralType :: IntegralType Int)) []
+    64 -> let t = typeOf (integralType :: IntegralType Int) in instr t $ SExt x t []
     _  -> $internalError "ord" "I don't know what architecture I am"
 
 chr :: Operand -> CodeGen Operand
@@ -528,8 +531,8 @@ fromIntegral i1 t x =
   case t of
     -- Integral to floating point conversions have appropriate instructions
     FloatingNumType f
-      | signedIntegralNum i1 -> instr $ SIToFP x (typeOf f) []
-      | otherwise            -> instr $ UIToFP x (typeOf f) []
+      | signedIntegralNum i1 -> let f' = typeOf f in instr f' $ SIToFP x f' []
+      | otherwise            -> let f' = typeOf f in instr f' $ UIToFP x f' []
 
     -- Conversion between integral types requires either a truncation (if the
     -- destination bitsize is smaller) or signed/unsigned extension.

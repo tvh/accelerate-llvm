@@ -20,11 +20,14 @@ import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.LLVM.Util
 
 -- llvm-general
+import LLVM.General.AST
 import LLVM.General.AST.Float
-import LLVM.General.AST.Type
+import LLVM.General.AST.AddrSpace
+import qualified LLVM.General.AST.Constant as C
 
 -- standard library
 import Foreign.C.Types
+import Data.List
 
 
 -- Generate the LLVM type for atomic types
@@ -147,3 +150,79 @@ bitSizeOfType t =
     FunctionType{}      -> error "bitSizeOf FunctionType"
     NamedTypeReference{}-> error "bitSizeOf NamedTypeReference"
     MetadataType        -> error "bitSizeOf MetadataType"
+
+typeOfConstant :: C.Constant -> Type
+typeOfConstant C.Int{..} = IntegerType integerBits
+typeOfConstant C.Float{..} = case floatValue of
+  _ -> undefined
+typeOfConstant C.Null{..} = constantType
+typeOfConstant C.Struct{..} =
+  StructureType isPacked (map typeOfConstant memberValues)
+typeOfConstant C.Array{..} = ArrayType (genericLength memberValues) memberType
+typeOfConstant C.Vector{..} = case memberValues of
+  (x:_) -> VectorType (genericLength memberValues) (typeOfConstant x)
+  [] -> error "typeOfConstant: empty Vector"
+typeOfConstant C.Undef{..} = constantType
+typeOfConstant C.BlockAddress{} = PointerType (IntegerType 8) (AddrSpace 0)
+typeOfConstant (C.GlobalReference t _) = t
+typeOfConstant C.Add{..} = typeOfConstant operand0
+typeOfConstant C.FAdd{..} = typeOfConstant operand0
+typeOfConstant C.Sub{..} = typeOfConstant operand0
+typeOfConstant C.FSub{..} = typeOfConstant operand0
+typeOfConstant C.Mul{..} = typeOfConstant operand0
+typeOfConstant C.FMul{..} = typeOfConstant operand0
+typeOfConstant C.UDiv{..} = typeOfConstant operand0
+typeOfConstant C.SDiv{..} = typeOfConstant operand0
+typeOfConstant C.FDiv{..} = typeOfConstant operand0
+typeOfConstant C.URem{..} = typeOfConstant operand0
+typeOfConstant C.SRem{..} = typeOfConstant operand0
+typeOfConstant C.FRem{..} = typeOfConstant operand0
+typeOfConstant C.Shl{..} = typeOfConstant operand0
+typeOfConstant C.LShr{..} = typeOfConstant operand0
+typeOfConstant C.AShr{..} = typeOfConstant operand0
+typeOfConstant C.And{..} = typeOfConstant operand0
+typeOfConstant C.Or{..} = typeOfConstant operand0
+typeOfConstant C.Xor{..} = typeOfConstant operand0
+typeOfConstant C.GetElementPtr{..} = typeOfConstant address
+typeOfConstant C.Trunc{..} = type'
+typeOfConstant C.ZExt{..} = type'
+typeOfConstant C.SExt{..} = type'
+typeOfConstant C.FPToUI{..} = type'
+typeOfConstant C.FPToSI{..} = type'
+typeOfConstant C.UIToFP{..} = type'
+typeOfConstant C.SIToFP{..} = type'
+typeOfConstant C.FPTrunc{..} = type'
+typeOfConstant C.FPExt{..} = type'
+typeOfConstant C.PtrToInt{..} = type'
+typeOfConstant C.IntToPtr{..} = type'
+typeOfConstant C.BitCast{..} = type'
+typeOfConstant C.ICmp{..} = case typeOfConstant operand0 of
+  VectorType{..} -> VectorType nVectorElements (IntegerType 1)
+  _              -> IntegerType 1
+typeOfConstant C.FCmp{..} = case typeOfConstant operand0 of
+  VectorType{..} -> VectorType nVectorElements (IntegerType 1)
+  _              -> IntegerType 1
+typeOfConstant C.Select{..} = typeOfConstant trueValue
+typeOfConstant C.ExtractElement{..} = case C.memberValues vector of
+  (x:_) -> typeOfConstant x
+  [] -> error "typeOfConstant: empty Vector"
+typeOfConstant C.InsertElement{..} = typeOfConstant vector
+typeOfConstant C.ShuffleVector{..} =
+  case (typeOfConstant operand0, typeOfConstant mask) of
+    (VectorType _ t, VectorType n _) -> VectorType n t
+    _ -> error "typeOfConstant: expected vector arguments to ShuffleVector"
+typeOfConstant C.ExtractValue{..} =
+  extractTypes indices' (typeOfConstant aggregate)
+ where
+  extractTypes []     t = t
+  extractTypes (n:ns) t = case t of
+    StructureType{..} -> extractTypes ns (elementTypes !! fromIntegral n)
+    ArrayType{..}     -> extractTypes ns elementType
+    _                 -> error "typeOfConstant: expected aggregate value in ExtractValue"
+typeOfConstant C.InsertValue{..} = typeOfConstant aggregate
+
+typeOfOperand :: Operand -> Type
+typeOfOperand (LocalReference t _) = t
+typeOfOperand (ConstantOperand c) = typeOfConstant c
+typeOfOperand MetadataStringOperand{} = MetadataType
+typeOfOperand MetadataNodeOperand{} = MetadataType

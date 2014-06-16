@@ -92,8 +92,8 @@ Library
         , containers                    >= 0.5 && <0.6
         , dlist                         >= 0.6
         , fclabels                      >= 2.0
-        , llvm-general                  >= 3.2
-        , llvm-general-pure             >= 3.2
+        , llvm-general                  (>= 3.3.12 && < 3.4) || >= 3.4.3
+        , llvm-general-pure             (>= 3.3.12 && < 3.4) || >= 3.4.3
         , llvm-general-quote            >= 0.1
         , mtl                           >= 2.0
         , mwc-random                    >= 0.13

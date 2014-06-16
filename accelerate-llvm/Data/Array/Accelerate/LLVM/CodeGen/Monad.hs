@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.CodeGen.Monad
@@ -37,7 +38,7 @@ module Data.Array.Accelerate.LLVM.CodeGen.Monad (
   addMetadata, trace,
 
   -- llvm-general-quote
-  (B..=.),
+  (.=.),
   B.CodeGenMonad(..)
 
 ) where
@@ -60,6 +61,7 @@ import qualified Data.Sequence                                  as Seq
 
 -- llvm-general
 import LLVM.General.AST                                         hiding ( Module )
+import qualified LLVM.General.AST.Constant                      as C
 import qualified LLVM.General.AST                               as AST
 import qualified LLVM.General.AST.Global                        as AST
 import qualified LLVM.General.Quote.Base                        as B
@@ -70,6 +72,7 @@ import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.LLVM.Target
 import Data.Array.Accelerate.LLVM.CodeGen.Module
 import Data.Array.Accelerate.LLVM.CodeGen.Intrinsic
+import Data.Array.Accelerate.LLVM.CodeGen.Type
 import qualified Data.Array.Accelerate.LLVM.Debug               as Debug
 
 -- Names
@@ -77,12 +80,6 @@ import qualified Data.Array.Accelerate.LLVM.Debug               as Debug
 
 instance IsString Name where
   fromString = Name . fromString
-
-instance IsString Operand where
-  fromString = LocalReference . fromString
-
-instance IsString [Operand] where       -- TLM: @tvh you are just the worst
-  fromString = (:[]) . fromString
 
 -- | Generate a fresh (un)name.
 --
@@ -100,7 +97,6 @@ freshName = state $ \s@CodeGenState{..} -> ( UnName next, s { next = next + 1 } 
 --
 data CodeGenState = CodeGenState
   { blockChain          :: Seq Block                            -- blocks for this function
-  , variables           :: Map Name [Operand]                   -- locally defined Variables
   , symbolTable         :: Map Name AST.Global                  -- global (external) function declarations
   , metadataTable       :: HashMap String (Seq [Maybe Operand]) -- module metadata to be collected
   , intrinsicTable      :: HashMap String Name                  -- standard math intrinsic functions
@@ -120,29 +116,32 @@ newtype CodeGen a = CodeGen { runCodeGen :: State CodeGenState a }
 
 instance B.CodeGenMonad CodeGen where
   newVariable = freshName
-  lookupVariable = lookupVariableA
-  setVariable = setVariableA
-  xs `assign` f = do
-    xs' <- f
-    setVariableA xs xs'
-    n <- newBlock "nextblock"
-    _ <- br n
-    createBlocks
   exec f = do
     f
     n <- newBlock "nextblock"
     _ <- br n
-  --  n <- newBlock "bb"
     createBlocks
-  execRet f = do
-    x <- f
-    returnV x
-  --  n <- newBlock "bb"
-    createBlocks
-  execRet_ f = do
-    f
-    return_
-    createBlocks
+
+assign :: [Name] -> CodeGen [Operand] -> CodeGen [BasicBlock]
+xs `assign` f = do
+  xs' <- f
+  _ <- zipWithM mkSelect xs xs'
+  n <- newBlock "nextblock"
+  _ <- br n
+  createBlocks
+ where
+  mkSelect :: Name -> Operand -> CodeGen Operand
+  mkSelect n x = do
+    let t = typeOfOperand x
+        true = ConstantOperand $ C.Int 1 1
+    instr' t n $ Select true x x []
+
+class Assignable a b where
+  (.=.) :: a -> CodeGen b -> CodeGen [BasicBlock]
+instance Assignable Name Operand where
+  n .=. x = x >>= \x' -> assign [n] (return [x'])
+instance Assignable [Name] [Operand] where
+  (.=.) = assign
 
 runLLVM
     :: forall t aenv a. (Target t, Intrinsic t)
@@ -152,7 +151,6 @@ runLLVM ll =
   let
       (r, st)   = runState (runCodeGen ll) $ CodeGenState
                     { blockChain        = initBlockChain
-                    , variables         = Map.empty
                     , symbolTable       = Map.empty
                     , metadataTable     = HashMap.empty
                     , intrinsicTable    = intrinsicForTarget (undefined::t)
@@ -217,13 +215,17 @@ createBlocks' reset l
 -- computed, and return the operand (LocalReference) that can be used to later
 -- refer to it.
 --
-instr :: Instruction -> CodeGen Operand
-instr op = do
+instr :: Type -> Instruction -> CodeGen Operand
+instr t op = do
   name  <- freshName
+  instr' t name op
+
+instr' :: Type -> Name -> Instruction -> CodeGen Operand
+instr' t name op = do
   state $ \s ->
     case Seq.viewr (blockChain s) of
       Seq.EmptyR  -> $internalError "instr" "empty block chain"
-      bs Seq.:> b -> ( LocalReference name
+      bs Seq.:> b -> ( LocalReference t name
                      , s { blockChain = bs Seq.|> b { instructions = instructions b Seq.|> name := op } } )
 
 -- | Execute an unnamed instruction
@@ -256,7 +258,7 @@ phi target crit t incoming =
   state $ \s ->
     case Seq.findIndexR search (blockChain s) of
       Nothing -> $internalError "phi" "unknown basic block"
-      Just i  -> ( LocalReference crit
+      Just i  -> ( LocalReference t crit
                  , s { blockChain = Seq.adjust (\b -> b { instructions = crit := op Seq.<| instructions b }) i (blockChain s) } )
 
 phi' :: Type -> [(Operand,Block)] -> CodeGen Operand
@@ -368,20 +370,6 @@ beginGroup nm = do
   _    <- br next
   setBlock next
 
--- Variables
--- =========
-
--- | Set a Variable
---
-setVariableA :: Name -> [Operand] -> CodeGen ()
-setVariableA x y =
-  state $ \s -> ( (), s { variables = Map.insert x y (variables s) } )
-
--- | Get a Variable
---
-lookupVariableA :: Name -> CodeGen (Maybe [Operand])
-lookupVariableA xs =
-  state $ \s -> ( Map.lookup xs (variables s) , s )
 
 -- Metadata
 -- ========

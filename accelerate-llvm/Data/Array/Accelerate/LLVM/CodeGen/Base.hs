@@ -56,6 +56,15 @@ arrayData _ base = varNames (undefined::e) (s ++ ".ad")
           UnName v -> (show v)
           Name v   -> v
 
+arrayDataOp :: forall sh e. Elt e => Array sh e -> Name -> [Operand]
+arrayDataOp _ base = zipWith local types names
+  where
+    types = llvmOfTupleType (eltType (undefined::e))
+    names = varNames (undefined::e) (s ++ ".ad")
+    s = case base of
+          UnName v -> (show v)
+          Name v   -> v
+
 arrayShape :: forall sh e. Shape sh => Array sh e -> Name -> [Name]
 arrayShape _ base = varNames (undefined::sh) (s ++ ".sh")
   where
@@ -63,19 +72,25 @@ arrayShape _ base = varNames (undefined::sh) (s ++ ".sh")
           UnName v -> (show v)
           Name v   -> v
 
+arrayShapeOp :: forall sh e. Shape sh => Array sh e -> Name -> [Operand]
+arrayShapeOp _ base = zipWith local types names
+  where
+    types = llvmOfTupleType (eltType (undefined::sh))
+    names = varNames (undefined::sh) (s ++ ".sh")
+    s = case base of
+          UnName v -> (show v)
+          Name v   -> v
+
 -- References
 --
-local :: Name -> Operand
+local :: Type -> Name -> Operand
 local = LocalReference
 
-global :: Name -> Operand
-global = ConstantOperand . GlobalReference
+global :: Type -> Name -> Operand
+global t = ConstantOperand . GlobalReference t
 
 class Rvalue a where
   rvalue :: a -> Operand
-
-instance Rvalue Name where
-  rvalue = local
 
 instance Rvalue Operand where
   rvalue = id
@@ -98,24 +113,13 @@ type IR env aenv t = [Operand]
 
 type IRExp aenv t  = CodeGen [Operand]
 
-class IROperand a where
-  toIRExp :: a -> CodeGen [Operand]
-
-instance IROperand [Operand] where
-  toIRExp = return
-
-instance IROperand Name where
-  toIRExp = getVariable
-
 
 -- | The code generator for scalar functions emits monadic operations. Since
 -- LLVM IR is static single assignment, we need to generate new operand names
 -- each time the function is applied.
 --
-type IRFun1 aenv f = forall a. IROperand a
-                     => a      -> CodeGen [Operand]
-type IRFun2 aenv f = forall a b. (IROperand a, IROperand b)
-                     => a -> b -> CodeGen [Operand]
+type IRFun1 aenv f = [Operand] -> CodeGen [Operand]
+type IRFun2 aenv f = [Operand] -> [Operand] -> CodeGen [Operand]
 
 -- | A wrapper representing the state of code generation for a delayed array
 --
@@ -146,9 +150,10 @@ call fn rt tyargs attrs = do
                                    , returnType           = rt
                                    , parameters           = (params,False)
                                    , G.functionAttributes = attrs }
+      ft        = FunctionType rt ty False
   --
   declare decl
-  instr $ Call False C [] (Right (global fn)) (toArgs args) attrs []
+  instr rt $ Call False C [] (Right (global ft fn)) (toArgs args) attrs []
 
 
 -- | Unpack the array environment into a set of input parameters to a function.

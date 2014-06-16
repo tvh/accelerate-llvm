@@ -14,6 +14,7 @@ module Data.Array.Accelerate.LLVM.CodeGen.Loop
 
 -- llvm-general
 import LLVM.General.AST
+import LLVM.General.AST.Type ( i1 )
 
 -- accelerate
 import Data.Array.Accelerate.LLVM.CodeGen.Base
@@ -43,7 +44,7 @@ for ti start test incr body = do
   -- ---------
   setBlock loop
   c_i   <- freshName
-  let i  = local c_i
+  let i  = local i1 c_i
 
   body i
 
@@ -78,8 +79,8 @@ iter ti start test incr ta seed body = do
   setBlock loop
   crit_i        <- freshName
   crit_acc      <- replicateM (length seed) freshName
-  let i         = local crit_i
-      acc       = map local crit_acc
+  let i         = local ti crit_i
+      acc       = zipWith local ta crit_acc
 
   acc'  <- body i acc
   i'    <- incr i
