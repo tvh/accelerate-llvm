@@ -69,9 +69,9 @@ mkPermute
 mkPermute aenv combine permute IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
-      arrOut                    = arrayData  (undefined::Array sh' e) "out"
-      shOut                     = arrayShape (undefined::Array sh' e) "out"
-      paramOut                  = arrayParam (undefined::Array sh' e) "out"
+      arrOut                    = arrayDataOp (undefined::Array sh' e) "out"
+      shOut                     = arrayShape  (undefined::Array sh' e) "out"
+      paramOut                  = arrayParam  (undefined::Array sh' e) "out"
       paramEnv                  = envParam aenv
 
       ignore                    = map (constOp . integral integralType)

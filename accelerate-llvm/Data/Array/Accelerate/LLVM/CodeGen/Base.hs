@@ -49,6 +49,12 @@ varNames t base = [ Name (base ++ show i) | i <- [n-1, n-2 .. 0] ]
   where
     n = length (llvmOfTupleType (eltType t))
 
+locals :: forall a. Elt a => a -> String -> [Operand]
+locals a base = zipWith local types names
+  where
+    types = llvmOfTupleType (eltType a)
+    names = varNames a base
+
 arrayData :: forall sh e. Elt e => Array sh e -> Name -> [Name]
 arrayData _ base = varNames (undefined::e) (s ++ ".ad")
   where
@@ -57,10 +63,8 @@ arrayData _ base = varNames (undefined::e) (s ++ ".ad")
           Name v   -> v
 
 arrayDataOp :: forall sh e. Elt e => Array sh e -> Name -> [Operand]
-arrayDataOp _ base = zipWith local types names
+arrayDataOp _ base = locals (undefined::e) (s ++ ".ad")
   where
-    types = llvmOfTupleType (eltType (undefined::e))
-    names = varNames (undefined::e) (s ++ ".ad")
     s = case base of
           UnName v -> (show v)
           Name v   -> v
@@ -73,10 +77,8 @@ arrayShape _ base = varNames (undefined::sh) (s ++ ".sh")
           Name v   -> v
 
 arrayShapeOp :: forall sh e. Shape sh => Array sh e -> Name -> [Operand]
-arrayShapeOp _ base = zipWith local types names
+arrayShapeOp _ base = locals (undefined::sh) (s ++ ".sh")
   where
-    types = llvmOfTupleType (eltType (undefined::sh))
-    names = varNames (undefined::sh) (s ++ ".sh")
     s = case base of
           UnName v -> (show v)
           Name v   -> v

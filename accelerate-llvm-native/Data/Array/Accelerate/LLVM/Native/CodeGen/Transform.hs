@@ -47,12 +47,17 @@ mkTransform
     -> CodeGen [Kernel t aenv (Array sh' b)]
 mkTransform aenv permute apply IRDelayed{..} =
   let
-      arrOut                    = arrayData  (undefined::Array sh' b) "out"
-      shOut                     = arrayShape (undefined::Array sh' b) "out"
-      paramOut                  = arrayParam (undefined::Array sh' b) "out"
+      arrOut                    = arrayDataOp  (undefined::Array sh' b) "out"
+      shOut                     = arrayShapeOp (undefined::Array sh' b) "out"
+      paramOut                  = arrayParam   (undefined::Array sh' b) "out"
       paramEnv                  = envParam aenv
       (start, end, paramGang)   = gangParam
       intType                   = typeOf (integralType :: IntegralType Int)
+
+      i                         = local intType "i"
+      ix                        = [local intType "ix"]
+      xs                        = locals (undefined::a) "xs"
+      ys                        = locals (undefined::b) "ys" 
   in
   makeKernelQ "transform" [llgM|
     define void @transform
@@ -64,11 +69,11 @@ mkTransform aenv permute apply IRDelayed{..} =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            $bbsM:("ix"  .=. indexOfInt shOut ("i" :: Name))            ;; convert to multidimensional index
-            $bbsM:("ix1" .=. permute ("ix" :: Name))                    ;; apply backwards index permutation
-            $bbsM:("xs"  .=. delayedIndex ("ix1" :: Name))              ;; get element
-            $bbsM:("ys"  .=. apply ("xs" :: Name))                      ;; apply function from input array
-            $bbsM:(execRet_ $ writeArray arrOut "i" ("ys" :: Name))
+            $bbsM:(ix .=. indexOfInt shOut i)            ;; convert to multidimensional index
+            $bbsM:(ix .=. permute ix)                     ;; apply backwards index permutation
+            $bbsM:(xs .=. delayedIndex ix)             ;; get element
+            $bbsM:(ys .=. apply xs)                  ;; apply function from input array
+            $bbsM:(writeArray arrOut i ys)
         }
         ret void
     }

@@ -142,6 +142,13 @@ instance Assignable Name Operand where
   n .=. x = x >>= \x' -> assign [n] (return [x'])
 instance Assignable [Name] [Operand] where
   (.=.) = assign
+instance Assignable [Operand] [Operand] where
+  ns .=. xs =
+    let nameFromOperand (LocalReference _ n) = n
+        nameFromOperand op = error $ "can't assign to non-reference Operand" ++ show op
+
+        ns' = map nameFromOperand ns
+    in ns' .=. xs
 
 runLLVM
     :: forall t aenv a. (Target t, Intrinsic t)

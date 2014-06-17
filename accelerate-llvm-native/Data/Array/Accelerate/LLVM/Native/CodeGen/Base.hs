@@ -34,7 +34,7 @@ gangParam =
       start     = "ix.start"
       end       = "ix.end"
   in
-  (local start, local end, [ Parameter t start [], Parameter t end [] ] )
+  (local t start, local t end, [ Parameter t start [], Parameter t end [] ] )
 
 -- | The thread ID of a gang worker
 --
@@ -43,7 +43,7 @@ gangId =
   let t         = typeOf (scalarType :: ScalarType Int)
       thread    = "ix.tid"
   in
-  (local thread, [Parameter t thread []] )
+  (local t thread, [Parameter t thread []] )
 
 
 -- | A version of 'makeKernel' that runs a quasi quoter generating the global
