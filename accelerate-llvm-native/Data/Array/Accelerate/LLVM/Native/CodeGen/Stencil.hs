@@ -55,10 +55,13 @@ mkStencil aenv stencil apply bndy delayed =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
-      arrOut                    = arrayData  (undefined::Array sh b) "out"
-      paramOut                  = arrayParam (undefined::Array sh b) "out"
+      arrOut                    = arrayDataOp (undefined::Array sh b) "out"
+      paramOut                  = arrayParam  (undefined::Array sh b) "out"
       intType                   = typeOf (integralType :: IntegralType Int)
 
+      x                         = locals (undefined::a) "x"
+      y                         = locals (undefined::b) "y"
+      i                         = local intType "i"
   in
   makeKernelQ "stencil" [llgM|
     define void @stencil
@@ -70,9 +73,9 @@ mkStencil aenv stencil apply bndy delayed =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            $bbsM:("x" .=. stencilAccess stencil delayed bndy ("i" :: [Operand]))
-            $bbsM:("y" .=. apply ("x" :: Name))
-            $bbsM:(writeArray arrOut "i" ("y" :: Name))
+            $bbsM:(x .=. stencilAccess stencil delayed bndy [i])
+            $bbsM:(y .=. apply x)
+            $bbsM:(writeArray arrOut i y)
         }
         ret void
     }
@@ -80,18 +83,17 @@ mkStencil aenv stencil apply bndy delayed =
 
 
 
-stencilAccess 
+stencilAccess
   :: forall a sh aenv stencil. (Shape sh, Stencil sh a stencil)
   => stencil
   -> IRDelayed aenv (Array sh a)
   -> Boundary (IRExp aenv a)
   -> IRFun1 aenv (Int -> stencil)
-stencilAccess stencil IRDelayed{..} bndy index' = do
+stencilAccess stencil IRDelayed{..} bndy [linearIndex] = do
   let intBits = typeBits $ typeOf (integralType :: IntegralType Int)
       off     = offsets (undefined :: Fun aenv (stencil -> a))
                         (undefined :: OpenAcc aenv (Array sh a))
       off'    = map shapeToList off
-  [linearIndex] <- toIRExp index'
   sh <- delayedExtent
   ix <- indexOfInt sh linearIndex
   indices <- mapM (access bndy sh ix) off'
@@ -110,7 +112,6 @@ access bndy sh ix off = do
   ix' <- zipWithM (add int) ix off'
   case bndy of
     Clamp -> clamp sh ix'
-    
 
 
 -- Clamp an index to the boundary of the shape (first argument)

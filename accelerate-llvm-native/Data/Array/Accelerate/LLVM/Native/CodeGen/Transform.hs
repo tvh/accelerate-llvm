@@ -18,7 +18,6 @@ module Data.Array.Accelerate.LLVM.Native.CodeGen.Transform
   where
 
 -- llvm-general
-import LLVM.General.AST
 import LLVM.General.Quote.LLVM
 
 -- accelerate
@@ -55,7 +54,7 @@ mkTransform aenv permute apply IRDelayed{..} =
       intType                   = typeOf (integralType :: IntegralType Int)
 
       i                         = local intType "i"
-      ix                        = [local intType "ix"]
+      ix                        = local intType "ix"
       xs                        = locals (undefined::a) "xs"
       ys                        = locals (undefined::b) "ys" 
   in
@@ -69,9 +68,9 @@ mkTransform aenv permute apply IRDelayed{..} =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            $bbsM:(ix .=. indexOfInt shOut i)            ;; convert to multidimensional index
-            $bbsM:(ix .=. permute ix)                     ;; apply backwards index permutation
-            $bbsM:(xs .=. delayedIndex ix)             ;; get element
+            $bbsM:([ix] .=. indexOfInt shOut i)            ;; convert to multidimensional index
+            $bbsM:([ix] .=. permute [ix])                     ;; apply backwards index permutation
+            $bbsM:(xs .=. delayedIndex [ix])             ;; get element
             $bbsM:(ys .=. apply xs)                  ;; apply function from input array
             $bbsM:(writeArray arrOut i ys)
         }

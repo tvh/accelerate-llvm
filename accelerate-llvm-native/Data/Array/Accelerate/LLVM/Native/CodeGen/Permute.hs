@@ -69,15 +69,15 @@ mkPermute
 mkPermute aenv combine permute IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
-      arrOut                    = arrayDataOp (undefined::Array sh' e) "out"
-      shOut                     = arrayShape  (undefined::Array sh' e) "out"
-      paramOut                  = arrayParam  (undefined::Array sh' e) "out"
+      arrOut                    = arrayDataOp  (undefined::Array sh' e) "out"
+      shOut                     = arrayShapeOp (undefined::Array sh' e) "out"
+      paramOut                  = arrayParam   (undefined::Array sh' e) "out"
       paramEnv                  = envParam aenv
 
       ignore                    = map (constOp . integral integralType)
                                 $ Sugar.shapeToList (Sugar.ignore :: sh')
 
-      barrier                   = arrayData  (undefined::Vector Word8) "barrier"
+      barrier                   = arrayDataOp (undefined::Vector Word8) "barrier"
       paramBarrier              = arrayParam (undefined::Vector Word8) "barrier"
   in do
   makeKernel "permute" (paramGang ++ paramBarrier ++ paramOut ++ paramEnv) $ do
@@ -115,17 +115,18 @@ mkPermute aenv combine permute IRDelayed{..} =
 -- waits for the lock. This optimisation is effective on all CPU architectures
 -- that have a cache per CPU.
 --
-spinlock :: [Name] -> Operand -> CodeGen a -> CodeGen (a, Block)
+spinlock :: [Operand] -> Operand -> CodeGen a -> CodeGen (a, Block)
 spinlock barrier' i action =
   let
       [barrier] = barrier'
-      locked    = constOp (integral (integralType :: IntegralType Word8) 1)
-      unlocked  = constOp (integral (integralType :: IntegralType Word8) 0)
+      word8     = integralType :: IntegralType Word8
+      locked    = constOp (integral word8 1)
+      unlocked  = constOp (integral word8 0)
   in do
   loop  <- newBlock "spinlock.entry"
   done  <- newBlock "spinlock.critical-section"
 
-  addr  <- instr $ GetElementPtr False (local barrier) [i] []
+  addr  <- instr (typeOf word8) $ GetElementPtr False barrier [i] []
   _     <- br loop
   setBlock loop
 
@@ -134,7 +135,7 @@ spinlock barrier' i action =
   -- unchanged (previously locked) and we need to spin until it becomes
   -- unlocked.
   --
-  old   <- instr $ AtomicRMW True Xchg addr locked (Atomicity True Acquire) []
+  old   <- instr (typeOf word8) $ AtomicRMW True Xchg addr locked (Atomicity True Acquire) []
   c     <- eq (scalarType :: ScalarType Word8) old locked
   _     <- cbr c loop done
 

@@ -16,7 +16,6 @@ module Data.Array.Accelerate.LLVM.Native.CodeGen.Generate
   where
 
 -- llvm-general
-import LLVM.General.AST
 import LLVM.General.Quote.LLVM
 
 -- accelerate
@@ -43,12 +42,16 @@ mkGenerate
     -> CodeGen [Kernel arch aenv (Array sh e)]
 mkGenerate aenv apply =
   let
-      arrOut                    = arrayData  (undefined::Array sh e) "out"
-      shOut                     = arrayShape (undefined::Array sh e) "out"
-      paramOut                  = arrayParam (undefined::Array sh e) "out"
+      arrOut                    = arrayDataOp  (undefined::Array sh e) "out"
+      shOut                     = arrayShapeOp (undefined::Array sh e) "out"
+      paramOut                  = arrayParam   (undefined::Array sh e) "out"
       paramEnv                  = envParam aenv
       (start, end, paramGang)   = gangParam
       intType                   = typeOf (integralType :: IntegralType Int)
+
+      r                         = locals (undefined::e) "r"
+      i                         = local intType "i"
+      ix                        = locals (undefined::sh) "ix"
   in
   makeKernelQ "generate" [llgM|
     define void @generate
@@ -60,9 +63,9 @@ mkGenerate aenv apply =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            $bbsM:("ix" .=. indexOfInt shOut ("i" :: Operand))          ;; convert to multidimensional index
-            $bbsM:("r"  .=. apply ("ix" :: Name))                       ;; apply generator function
-            $bbsM:(execRet_ $ writeArray arrOut "i" ("r" :: Name))      ;; store result
+            $bbsM:(ix .=. indexOfInt shOut i)          ;; convert to multidimensional index
+            $bbsM:(r  .=. apply ix)                    ;; apply generator function
+            $bbsM:(writeArray arrOut i r)              ;; store result
         }
         ret void
     }

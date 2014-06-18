@@ -115,12 +115,15 @@ mkFold' aenv combine seed IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
-      arrOut                    = arrayData  (undefined::Array sh e) "out"
-      paramOut                  = arrayParam (undefined::Array sh e) "out"
+      arrOut                    = arrayDataOp (undefined::Array sh e) "out"
+      paramOut                  = arrayParam  (undefined::Array sh e) "out"
       intType                   = typeOf (integralType :: IntegralType Int)
       paramStride               = [Parameter intType "ix.stride" []]
 
-      ty_acc                    = llvmOfTupleType (eltType (undefined::e))
+      x                         = locals (undefined::e) "x"
+      y                         = locals (undefined::e) "y"
+      i                         = local intType "i"
+      sh                        = local intType "sh"
   in
   makeKernelQ "fold" [llgM|
     define void @fold
@@ -133,25 +136,21 @@ mkFold' aenv combine seed IRDelayed{..} =
     {
         entry:
           %firstSeg = mul $type:intType $opr:(start), %ix.stride
-          br label %for.segment
 
         for.segment:
-          for $type:intType %sh in $opr:start to $opr:end with $type:intType %firstSeg as %sz
+          for $type:intType %sh in $opr:start to $opr:end
           {
-              $bbsM:("seed" .=. seed)
-              %next = add $type:intType %sz, %ix.stride
-              br label %reduce
+              %sz = mul $type:intType %sh, %ix.stride
+              $bbsM:(x .=. seed)
 
             reduce:
-              for $type:intType %j in %sz to %next with $types:ty_acc %seed as %x
+              for $type:intType %i in %sz to %next
               {
-                  $bbsM:("y" .=. delayedLinearIndex ("j" :: [Operand]))
-                  $bbsM:("z" .=. (combine ("x" :: Name) ("y" :: Name)))
-                  $bbsM:(execRet $ return "z")
+                  $bbsM:(y .=. delayedLinearIndex [i])
+                  $bbsM:(x .=. combine x y)
               }
 
-              $bbsM:(exec $ writeArray arrOut "sh" ("x" :: Name))
-              ret $type:intType %next
+              $bbsM:(writeArray arrOut sh x)
           }
           ret void
       }
@@ -172,13 +171,19 @@ mkFold1' aenv combine IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
-      arrOut                    = arrayData  (undefined::Array sh e) "out"
-      paramOut                  = arrayParam (undefined::Array sh e) "out"
+      arrOut                    = arrayDataOp (undefined::Array sh e) "out"
+      paramOut                  = arrayParam  (undefined::Array sh e) "out"
       paramStride               = [Parameter (typeOf (integralType :: IntegralType Int)) "ix.stride" []]
 
-      n                         = local "ix.stride"
-      ty_acc                    = llvmOfTupleType (eltType (undefined::e))
+      n                         = local intType "ix.stride"
       intType                   = typeOf (integralType :: IntegralType Int)
+
+      sz                        = local intType "sz"
+      sh                        = local intType "sh"
+      j                         = local intType "j"
+      acc                       = locals (undefined::e) "acc"
+      x                         = locals (undefined::e) "x"
+
   in
   makeKernelQ "fold" [llgM|
     define void @fold
@@ -188,29 +193,24 @@ mkFold1' aenv combine IRDelayed{..} =
         $params:paramOut,
         $params:paramEnv
     )
-    {
-        entry:
-          %firstSeg = mul $type:intType $opr:(start), $opr:(n)
-          br label %for.segment
+    {     %sz = mul $type:intType $opr:start, $opr:n
 
-        for.segment:
-          for $type:intType %sh in $opr:start to $opr:end with $type:intType %firstSeg as %sz
+          for $type:intType %sh in $opr:start to $opr:end
           {
-              $bbsM:("seed" .=. delayedLinearIndex ("sz" :: [Operand]))
-              %next  = add $type:intType %sz, $opr:(n)
+              %next = add $type:intType %sz, $opr:n
+              $bbsM:(acc .=. delayedLinearIndex [sz])
+              %next  = add $type:intType %sz, $opr:n
               %start = add $type:intType %sz, 1
-              br label %reduce
 
             reduce:
-              for $type:intType %j in %start to %next with $types:ty_acc %seed as %x
+              for $type:intType %j in %start to %next
               {
-                  $bbsM:("y" .=. delayedLinearIndex ("j" :: [Operand]))
-                  $bbsM:("z" .=. combine ("x" :: Name) ("y" :: Name))
-                  $bbsM:(execRet $ return "z")
+                  $bbsM:(x .=. delayedLinearIndex [j])
+                  $bbsM:(acc .=. combine acc x)
               }
 
-              $bbsM:(exec $ writeArray arrOut "sh" ("x" :: Name))
-              ret $type:intType %next
+              $bbsM:(writeArray arrOut sh acc)
+              %sz = $type:intType %next
           }
 
           ret void
@@ -251,12 +251,12 @@ mkFoldAll' aenv combine seed IRDelayed{..} =
       paramEnv                  = envParam aenv
 
       -- intermediate result of first step
-      paramTmp  = arrayParam (undefined::Vector e) "tmp"
-      arrTmp    = arrayData  (undefined::Vector e) "tmp"
+      paramTmp  = arrayParam  (undefined::Vector e) "tmp"
+      arrTmp    = arrayDataOp (undefined::Vector e) "tmp"
 
       -- output array from final step
-      paramOut  = arrayParam (undefined::Scalar e) "out"
-      arrOut    = arrayData  (undefined::Scalar e) "out"
+      paramOut  = arrayParam  (undefined::Scalar e) "out"
+      arrOut    = arrayDataOp (undefined::Scalar e) "out"
 
       ty_acc    = llvmOfTupleType (eltType (undefined::e))
       zero      = constOp (num int 0)
@@ -295,12 +295,12 @@ mkFold1All' aenv combine IRDelayed{..} =
       paramEnv                  = envParam aenv
 
       -- intermediate result of first step
-      paramTmp  = arrayParam (undefined::Vector e) "tmp"
-      arrTmp    = arrayData  (undefined::Vector e) "tmp"
+      paramTmp  = arrayParam  (undefined::Vector e) "tmp"
+      arrTmp    = arrayDataOp (undefined::Vector e) "tmp"
 
       -- output array from final step
-      paramOut  = arrayParam (undefined::Scalar e) "out"
-      arrOut    = arrayData  (undefined::Scalar e) "out"
+      paramOut  = arrayParam  (undefined::Scalar e) "out"
+      arrOut    = arrayDataOp (undefined::Scalar e) "out"
 
       ty_acc    = llvmOfTupleType (eltType (undefined::e))
       zero      = constOp (num int 0)

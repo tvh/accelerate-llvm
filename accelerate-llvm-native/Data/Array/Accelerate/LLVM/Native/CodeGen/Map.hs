@@ -29,8 +29,6 @@ import Data.Array.Accelerate.LLVM.CodeGen.Type
 
 import Data.Array.Accelerate.LLVM.Native.CodeGen.Base
 
-import LLVM.General.AST
-
 import LLVM.General.Quote.LLVM
 import Data.Array.Accelerate.Type
 
@@ -76,17 +74,21 @@ import Data.Array.Accelerate.Type
 
 -- Apply the given unary function to each element of an array.
 --
-mkMap :: forall t aenv sh a b. Elt b
+mkMap :: forall t aenv sh a b. (Elt b, Elt a)
       => Gamma aenv
       -> IRFun1    aenv (a -> b)
       -> IRDelayed aenv (Array sh a)
       -> CodeGen [Kernel t aenv (Array sh b)]
 mkMap aenv apply IRDelayed{..} =
   let (start, end, paramGang)   = gangParam
-      arrOut                    = arrayData  (undefined::Array sh b) "out"
+      arrOut                    = arrayDataOp  (undefined::Array sh b) "out"
       paramOut                  = arrayParam (undefined::Array sh b) "out"
       paramEnv                  = envParam aenv
       intType                   = typeOf (integralType :: IntegralType Int)
+
+      x                         = locals (undefined::a) "x"
+      y                         = locals (undefined::b) "y"
+      i                         = local intType "i"
   in
   makeKernelQ "map" [llgM|
     define void @map
@@ -98,9 +100,9 @@ mkMap aenv apply IRDelayed{..} =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            $bbsM:("x" .=. delayedLinearIndex ("i" :: [Operand]))
-            $bbsM:("y" .=. apply ("x" :: Name))
-            $bbsM:(execRet_ $ writeArray arrOut "i" ("y" :: Name))
+            $bbsM:(x .=. delayedLinearIndex [i])
+            $bbsM:(y .=. apply x)
+            $bbsM:(writeArray arrOut i y)
         }
         ret void
     }
