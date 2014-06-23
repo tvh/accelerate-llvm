@@ -59,60 +59,12 @@ mkScanl aenv f s a =
         , delayedIndex       = $internalError "mkScanl" "linear indexing of temporary array only"
         }
   in do
-  [k1] <- mkScanlSeq aenv f s a
-  [k2] <- mkScanl1Pre aenv f a
-  [k3] <- mkScanlPost aenv f s a tmp
-  return [k1,k2,k3]
+  [k1] <- mkScanl1Pre aenv f a
+  [k2] <- mkScanlOp aenv f s a tmp
+  return [k1,k2]
 
 
--- Sequential inclusive left scan
---
-mkScanlSeq
-    :: forall t aenv e. (Elt e)
-    => Gamma aenv
-    -> IRFun2    aenv (e -> e -> e)
-    -> IRExp     aenv e
-    -> IRDelayed aenv (Vector e)
-    -> CodeGen [Kernel t aenv (Vector e)]
-mkScanlSeq aenv combine seed IRDelayed{..} =
-  let
-      (start, end, paramGang)   = gangParam
-      paramEnv                  = envParam aenv
-      arrOut                    = arrayDataOp (undefined::Vector e) "out"
-      paramOut                  = arrayParam  (undefined::Vector e) "out"
-      intType                   = typeOf (integralType :: IntegralType Int)
-
-      acc                       = locals (undefined::e) "acc"
-      x                         = locals (undefined::e) "x"
-      i                         = local intType "i"
-      i1                        = local intType "i1"
-  in
-  makeKernelQ "scanlSeq" [llgM|
-    define void @scanlSeq
-    (
-        $params:paramGang,
-        $params:paramOut,
-        $params:paramEnv
-    )
-    {
-        ;; We can assume start = 0 and add the seed element without checks.
-        $bbsM:(acc .=. seed)
-        $bbsM:(writeArray arrOut start acc)
-
-        for:
-          for $type:intType %i in $opr:start to $opr:end
-          {
-              %i1 = add $type:intType %i, 1
-              $bbsM:(x .=. delayedLinearIndex [i])
-              $bbsM:(acc .=. combine acc x)
-              $bbsM:(writeArray arrOut i1 acc)
-          }
-          ret void
-    }
-  |]
-
-
-mkScanlPost
+mkScanlOp
     :: forall t aenv e. (Elt e)
     => Gamma aenv
     -> IRFun2    aenv (e -> e -> e)
@@ -120,7 +72,7 @@ mkScanlPost
     -> IRDelayed aenv (Vector e)
     -> IRDelayed aenv (Vector e)
     -> CodeGen [Kernel t aenv (Vector e)]
-mkScanlPost aenv combine seed inD tmpD =
+mkScanlOp aenv combine seed inD tmpD =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
@@ -135,7 +87,7 @@ mkScanlPost aenv combine seed inD tmpD =
       k                         = local intType "k"
       k1                        = local intType "k1"
   in
-  makeKernelQ "scanlPost" [llgM|
+  makeKernelQ "scanl" [llgM|
     define void @scanlPost
     (
         $params:paramGang ,
@@ -206,60 +158,12 @@ mkScanr aenv f s a =
         , delayedIndex       = $internalError "mkScanr" "linear indexing of temporary array only"
         }
   in do
-  [k1] <- mkScanrSeq aenv f s a
-  [k2] <- mkScanr1Pre aenv f a
-  [k3] <- mkScanrPost aenv f s a tmp
-  return [k1,k2,k3]
+  [k1] <- mkScanr1Pre aenv f a
+  [k2] <- mkScanrOp aenv f s a tmp
+  return [k1,k2]
 
 
--- Sequential inclusive right scan
---
-mkScanrSeq
-    :: forall t aenv e. (Elt e)
-    => Gamma aenv
-    -> IRFun2    aenv (e -> e -> e)
-    -> IRExp     aenv e
-    -> IRDelayed aenv (Vector e)
-    -> CodeGen [Kernel t aenv (Vector e)]
-mkScanrSeq aenv combine seed IRDelayed{..} =
-  let
-      (start, end, paramGang)   = gangParam
-      paramEnv                  = envParam aenv
-      arrOut                    = arrayDataOp (undefined::Vector e) "out"
-      paramOut                  = arrayParam  (undefined::Vector e) "out"
-      intType                   = typeOf (integralType :: IntegralType Int)
-
-      acc                       = locals (undefined::e) "acc"
-      x                         = locals (undefined::e) "x"
-      start1                    = local intType "start1"
-      i                         = local intType "i"
-  in
-  makeKernelQ "scanrSeq" [llgM|
-    define void @scanrSeq
-    (
-        $params:paramGang,
-        $params:paramOut,
-        $params:paramEnv
-    )
-    {
-        %start1 = add $type:intType $opr:start, 1
-
-        $bbsM:(acc .=. seed)
-        $bbsM:(writeArray arrOut start1 acc)
-
-        for:
-          for $type:intType %i in $opr:start downto $opr:end
-          {
-              $bbsM:(x .=. delayedLinearIndex [i])
-              $bbsM:(acc .=. combine acc x)
-              $bbsM:(writeArray arrOut i acc)
-          }
-          ret void
-    }
-  |]
-
-
-mkScanrPost
+mkScanrOp
     :: forall t aenv e. (Elt e)
     => Gamma aenv
     -> IRFun2    aenv (e -> e -> e)
@@ -267,7 +171,7 @@ mkScanrPost
     -> IRDelayed aenv (Vector e)
     -> IRDelayed aenv (Vector e)
     -> CodeGen [Kernel t aenv (Vector e)]
-mkScanrPost aenv combine seed inD tmpD =
+mkScanrOp aenv combine seed inD tmpD =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
@@ -281,8 +185,8 @@ mkScanrPost aenv combine seed inD tmpD =
       k                         = local intType "k"
       ix1                       = local intType "ix1"
   in
-  makeKernelQ "scanrPost" [llgM|
-    define void @scanrPost
+  makeKernelQ "scanr" [llgM|
+    define void @scanr
     (
         $params:paramGang ,
         $type:intType %lastChunk,
@@ -325,7 +229,6 @@ mkScanrPost aenv combine seed inD tmpD =
                 $bbsM:(acc .=. combine x acc)
                 $bbsM:(writeArray arrOut k acc)
             }
-            ret void
         }
         ret void
     }
@@ -354,54 +257,9 @@ mkScanl1 aenv f a =
         , delayedIndex       = $internalError "mkScanl1" "linear indexing of temporary array only"
         }
   in do
-  [k1] <- mkScanl1Seq aenv f a
-  [k2] <- mkScanl1Pre aenv f a
-  [k3] <- mkScanl1Post aenv f a tmp
-  return [k1,k2,k3]
-
-
--- Sequential inclusive left scan
---
-mkScanl1Seq
-    :: forall t aenv e. (Elt e)
-    => Gamma aenv
-    -> IRFun2    aenv (e -> e -> e)
-    -> IRDelayed aenv (Vector e)
-    -> CodeGen [Kernel t aenv (Vector e)]
-mkScanl1Seq aenv combine IRDelayed{..} =
-  let
-      (start, end, paramGang)   = gangParam
-      paramEnv                  = envParam aenv
-      arrOut                    = arrayDataOp (undefined::Vector e) "out"
-      paramOut                  = arrayParam  (undefined::Vector e) "out"
-      intType                   = typeOf (integralType :: IntegralType Int)
-
-      acc                       = locals (undefined::e) "acc"
-      x                         = locals (undefined::e) "x"
-      i                         = local intType "i"
-  in
-  makeKernelQ "scanl1Seq" [llgM|
-    define void @scanl1Seq
-    (
-        $params:paramGang,
-        $params:paramOut,
-        $params:paramEnv
-    )
-    {
-        $bbsM:(acc .=. delayedLinearIndex [start])
-        $bbsM:(writeArray arrOut start acc)
-        %start1 = add $type:intType $opr:start, 1
-
-        for:
-          for $type:intType %i in %start1 to $opr:end
-          {
-              $bbsM:(x .=. delayedLinearIndex [i])
-              $bbsM:(acc .=. combine acc x)
-              $bbsM:(writeArray arrOut i acc)
-          }
-          ret void
-    }
-  |]
+  [k1] <- mkScanl1Pre aenv f a
+  [k2] <- mkScanl1Op aenv f a tmp
+  return [k1,k2]
 
 
 mkScanl1Pre
@@ -454,14 +312,14 @@ mkScanl1Pre aenv combine IRDelayed{..} =
   |]
 
 
-mkScanl1Post
+mkScanl1Op
     :: forall t aenv e. (Elt e)
     => Gamma aenv
     -> IRFun2    aenv (e -> e -> e)
     -> IRDelayed aenv (Vector e)
     -> IRDelayed aenv (Vector e)
     -> CodeGen [Kernel t aenv (Vector e)]
-mkScanl1Post aenv combine inD tmpD =
+mkScanl1Op aenv combine inD tmpD =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
@@ -475,8 +333,8 @@ mkScanl1Post aenv combine inD tmpD =
       ix                        = local intType "ix"
       k                         = local intType "k"
   in
-  makeKernelQ "scanl1Post" [llgM|
-    define void @scanl1Post
+  makeKernelQ "scanl1" [llgM|
+    define void @scanl1
     (
         $params:paramGang ,
         $type:intType %lastChunk,
@@ -543,54 +401,9 @@ mkScanr1 aenv f a =
         , delayedIndex       = $internalError "mkScanr1" "linear indexing of temporary array only"
         }
   in do
-  [k1] <- mkScanr1Seq aenv f a
-  [k2] <- mkScanr1Pre aenv f a
-  [k3] <- mkScanr1Post aenv f a tmp
-  return [k1,k2,k3]
-
-
--- Sequential inclusive right scan
---
-mkScanr1Seq
-    :: forall t aenv e. (Elt e)
-    => Gamma aenv
-    -> IRFun2    aenv (e -> e -> e)
-    -> IRDelayed aenv (Vector e)
-    -> CodeGen [Kernel t aenv (Vector e)]
-mkScanr1Seq aenv combine IRDelayed{..} =
-  let
-      (start, end, paramGang)   = gangParam
-      paramEnv                  = envParam aenv
-      arrOut                    = arrayDataOp (undefined::Vector e) "out"
-      paramOut                  = arrayParam  (undefined::Vector e) "out"
-      intType                   = typeOf (integralType :: IntegralType Int)
-
-      x                         = locals (undefined::e) "x"
-      acc                       = locals (undefined::e) "acc"
-      i                         = local intType "i"
-  in
-  makeKernelQ "scanr1Seq" [llgM|
-    define void @scanr1Seq
-    (
-        $params:paramGang,
-        $params:paramOut,
-        $params:paramEnv
-    )
-    {
-        $bbsM:(acc .=. delayedLinearIndex [start])
-        $bbsM:(writeArray arrOut start acc)
-        %start1 = sub $type:intType $opr:start, 1
-
-        for:
-          for $type:intType %i in %start1 downto $opr:end
-          {
-              $bbsM:(x .=. delayedLinearIndex [i])
-              $bbsM:(acc .=. combine acc x)
-              $bbsM:(writeArray arrOut i acc)
-          }
-          ret void
-    }
-  |]
+  [k1] <- mkScanr1Pre aenv f a
+  [k2] <- mkScanr1Op aenv f a tmp
+  return [k1,k2]
 
 
 mkScanr1Pre
@@ -645,14 +458,14 @@ mkScanr1Pre aenv combine IRDelayed{..} =
   |]
 
 
-mkScanr1Post
+mkScanr1Op
     :: forall t aenv e. (Elt e)
     => Gamma aenv
     -> IRFun2    aenv (e -> e -> e)
     -> IRDelayed aenv (Vector e)
     -> IRDelayed aenv (Vector e)
     -> CodeGen [Kernel t aenv (Vector e)]
-mkScanr1Post aenv combine inD tmpD =
+mkScanr1Op aenv combine inD tmpD =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
@@ -666,8 +479,8 @@ mkScanr1Post aenv combine inD tmpD =
       ix                        = local intType "ix"
       k                         = local intType "k"
   in
-  makeKernelQ "scanr1Post" [llgM|
-    define void @scanr1Post
+  makeKernelQ "scanr1" [llgM|
+    define void @scanr1
     (
         $params:paramGang ,
         $type:intType %lastChunk,

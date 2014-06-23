@@ -215,11 +215,12 @@ scanlOp (NativeR k) gamma aenv () (Z :. sz) = do
 
   -- sequential reduction
   if gangSize theGang == 1 || sz < defaultLargePPT
-     then do let out = allocateArray (Z :. sz+1)
+     then do let tmp = allocateArray (Z :. 0) :: Vector e
+                 out = allocateArray (Z :. sz+1)
              --
              liftIO $ do
-               executeNamedFunction k "scanlSeq" $ \f ->
-                 callFFI f retVoid =<< marshal native () (0::Int, sz, out, (gamma,aenv))
+               executeNamedFunction k "scanl" $ \f ->
+                 callFFI f retVoid =<< marshal native () (0::Int, 1::Int, 0::Int, sz, sz, tmp, out, (gamma,aenv))
 
              return out
 
@@ -234,7 +235,7 @@ scanlOp (NativeR k) gamma aenv () (Z :. sz) = do
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,chunkSize,tmp,(gamma,aenv))
 
-               executeNamedFunction k "scanlPost"          $ \f ->
+               executeNamedFunction k "scanl"          $ \f ->
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,(gamma,aenv))
 
@@ -255,11 +256,12 @@ scanl1Op (NativeR k) gamma aenv () (Z :. sz) = do
 
   -- sequential reduction
   if gangSize theGang == 1 || sz < defaultLargePPT
-     then do let out = allocateArray (Z :. sz)
+     then do let tmp = allocateArray (Z :. 0) :: Vector e
+                 out = allocateArray (Z :. sz)
              --
              liftIO $ do
-               executeNamedFunction k "scanl1Seq" $ \f ->
-                 callFFI f retVoid =<< marshal native () (0::Int, sz, out, (gamma,aenv))
+               executeNamedFunction k "scanl1" $ \f ->
+                 callFFI f retVoid =<< marshal native () (0::Int, 1::Int, 0::Int, sz, sz, tmp, out, (gamma,aenv))
 
              return out
 
@@ -274,7 +276,7 @@ scanl1Op (NativeR k) gamma aenv () (Z :. sz) = do
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,chunkSize,tmp,(gamma,aenv))
 
-               executeNamedFunction k "scanl1Post"          $ \f ->
+               executeNamedFunction k "scanl1"          $ \f ->
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,(gamma,aenv))
 
@@ -295,11 +297,12 @@ scanrOp (NativeR k) gamma aenv () (Z :. sz) = do
 
   -- sequential reduction
   if gangSize theGang == 1 || sz < defaultLargePPT
-     then do let out = allocateArray (Z :. sz+1)
+     then do let tmp = allocateArray (Z :. 0) :: Vector e
+                 out = allocateArray (Z :. sz+1)
              --
              liftIO $ do
-               executeNamedFunction k "scanrSeq" $ \f ->
-                 callFFI f retVoid =<< marshal native () (sz-1, (-1 :: Int), out, (gamma,aenv))
+               executeNamedFunction k "scanr" $ \f ->
+                 callFFI f retVoid =<< marshal native () (0::Int, 1::Int, 0::Int, sz, sz, tmp, out, (gamma,aenv))
 
              return out
 
@@ -314,7 +317,7 @@ scanrOp (NativeR k) gamma aenv () (Z :. sz) = do
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,chunkSize,sz,tmp,(gamma,aenv))
 
-               executeNamedFunction k "scanrPost"          $ \f ->
+               executeNamedFunction k "scanr"          $ \f ->
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,(gamma,aenv))
 
@@ -335,11 +338,12 @@ scanr1Op (NativeR k) gamma aenv () (Z :. sz) = do
 
   -- sequential reduction
   if gangSize theGang == 1 || sz < defaultLargePPT
-     then do let out = allocateArray (Z :. sz)
+     then do let tmp = allocateArray (Z :. 0) :: Vector e
+                 out = allocateArray (Z :. sz)
              --
              liftIO $ do
-               executeNamedFunction k "scanr1Seq" $ \f ->
-                 callFFI f retVoid =<< marshal native () (sz-1, (-1 :: Int), out, (gamma,aenv))
+               executeNamedFunction k "scanr1" $ \f ->
+                 callFFI f retVoid =<< marshal native () (0::Int, 1::Int, 0::Int, sz, sz, tmp, out, (gamma,aenv))
 
              return out
 
@@ -354,7 +358,7 @@ scanr1Op (NativeR k) gamma aenv () (Z :. sz) = do
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,chunkSize,sz,tmp,(gamma,aenv))
 
-               executeNamedFunction k "scanr1Post"          $ \f ->
+               executeNamedFunction k "scanr1"          $ \f ->
                  runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
                    callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,(gamma,aenv))
 
