@@ -26,7 +26,7 @@ import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Array.Sugar                                ( Array, Vector, Shape, Elt )
 import qualified Data.Array.Accelerate.Array.Sugar                      as Sugar
 
-import Data.Array.Accelerate.LLVM.CodeGen.Arithmetic                    as A
+import Data.Array.Accelerate.LLVM.CodeGen.Arithmetic                    as A hiding ( fromIntegral )
 import Data.Array.Accelerate.LLVM.CodeGen.Base
 import Data.Array.Accelerate.LLVM.CodeGen.Constant
 import Data.Array.Accelerate.LLVM.CodeGen.Environment
@@ -41,6 +41,7 @@ import Data.Array.Accelerate.LLVM.Native.CodeGen.Loop
 -- standard library
 import Prelude                                                          hiding ( all )
 import Control.Monad
+import qualified Foreign.Storable                                       as S
 
 
 -- A forward permutation is specified by an index mapping that determines, for
@@ -146,7 +147,7 @@ spinlock barrier' i action =
   --
   setBlock done
   res   <- action
-  do_    $ Store True addr unlocked (Just $ Atomicity True Release) 0 []
+  do_    $ Store True addr unlocked (Just $ Atomicity True Release) (fromIntegral $ S.alignment (undefined::Word8)) []
 
   return (res, done)
 
