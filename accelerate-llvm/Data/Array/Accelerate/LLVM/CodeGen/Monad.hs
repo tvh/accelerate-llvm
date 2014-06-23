@@ -145,7 +145,7 @@ instance Assignable [Name] [Operand] where
 instance Assignable [Operand] [Operand] where
   ns .=. xs =
     let nameFromOperand (LocalReference _ n) = n
-        nameFromOperand op = error $ "can't assign to non-reference Operand" ++ show op
+        nameFromOperand op = $internalError "(.=.)" $ "can't assign to non-reference Operand" ++ show op
 
         ns' = map nameFromOperand ns
     in ns' .=. xs
