@@ -118,15 +118,15 @@ instance B.CodeGenMonad CodeGen where
   newVariable = freshName
   exec f = do
     f
-    n <- newBlock "nextblock"
+    let n = newBlock' (Name "nextblock")
     _ <- br n
     createBlocks
 
 assign :: [Name] -> CodeGen [Operand] -> CodeGen [BasicBlock]
 xs `assign` f = do
   xs' <- f
-  _ <- zipWithM mkSelect xs xs'
-  n <- newBlock "nextblock"
+  zipWithM_ mkSelect xs xs'
+  let n = newBlock' (Name "nextblock")
   _ <- br n
   createBlocks
  where
@@ -356,9 +356,12 @@ newBlock nm =
   state $ \s ->
     let idx     = next s
         label   = Name $ let (h,t) = break (== '.') nm in (h ++ shows idx t)
-        nextB   = Block label Seq.empty Nothing
+        nextB   = newBlock' label
     in
     ( nextB, s{ next = idx+1 } )
+
+newBlock' :: Name -> Block
+newBlock' label = Block label Seq.empty Nothing
 
 -- | Add this block to the block stream. Any instructions pushed onto the stream
 -- by 'instr' and friends will now apply to this block.
