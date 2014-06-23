@@ -464,7 +464,7 @@ intOfIndex extent idx = cvt (reverseMap rvalue extent) (reverseMap rvalue idx)
 indexOfInt :: (Rvalue sh, Rvalue i) => [sh] -> i -> CodeGen [Operand]
 indexOfInt extent idx = reverse `fmap` cvt (reverseMap rvalue extent) (rvalue idx)
   where
-    cvt []      _ = return [constOp $ num int 0]
+    cvt []      _ = return []
     cvt [_]     i = return [i]  -- assert( i >= 0 && i < sh )
     cvt (sz:sh) i = do
       r  <- A.rem  int i sz
