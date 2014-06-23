@@ -63,8 +63,10 @@ arrayData _ base = varNames (undefined::e) (s ++ ".ad")
           Name v   -> v
 
 arrayDataOp :: forall sh e. Elt e => Array sh e -> Name -> [Operand]
-arrayDataOp _ base = locals (undefined::e) (s ++ ".ad")
+arrayDataOp _ base = zipWith local types names
   where
+    types = map (\t -> PointerType t (AddrSpace 0)) $ llvmOfTupleType (eltType (undefined::e))
+    names = varNames (undefined::e) (s ++ ".ad")
     s = case base of
           UnName v -> (show v)
           Name v   -> v
