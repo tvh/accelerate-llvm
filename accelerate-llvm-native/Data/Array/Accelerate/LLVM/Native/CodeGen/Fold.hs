@@ -120,6 +120,7 @@ mkFold' aenv combine seed IRDelayed{..} =
       intType                   = typeOf (integralType :: IntegralType Int)
       paramStride               = [Parameter intType "ix.stride" []]
 
+      n                         = local intType "ix.stride"     -- innermost dimension; length to reduce over
       x                         = locals (undefined::e) "x"
       y                         = locals (undefined::e) "y"
       i                         = local intType "i"
@@ -134,13 +135,12 @@ mkFold' aenv combine seed IRDelayed{..} =
         $params:paramEnv
     )
     {
-        entry:
-          %firstSeg = mul $type:intType $opr:(start), %ix.stride
+          %sz = mul $type:intType $opr:start, $opr:n
 
-        for.segment:
+        loop:
           for $type:intType %sh in $opr:start to $opr:end
           {
-              %sz = mul $type:intType %sh, %ix.stride
+              %next = add $type:intType %sz, $opr:n
               $bbsM:(x .=. seed)
 
             reduce:
@@ -151,6 +151,7 @@ mkFold' aenv combine seed IRDelayed{..} =
               }
 
               $bbsM:(writeArray arrOut sh x)
+              %sz = $type:intType %next
           }
           ret void
       }
@@ -199,7 +200,6 @@ mkFold1' aenv combine IRDelayed{..} =
           {
               %next = add $type:intType %sz, $opr:n
               $bbsM:(acc .=. delayedLinearIndex [sz])
-              %next  = add $type:intType %sz, $opr:n
               %start = add $type:intType %sz, 1
 
             reduce:
