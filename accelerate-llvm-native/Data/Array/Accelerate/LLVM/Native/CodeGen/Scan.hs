@@ -184,8 +184,8 @@ mkScanl'Op aenv combine seed inD tmpD =
       paramTmp                  = arrayParam  (undefined::Vector e) "tmp"
       arrOut                    = arrayDataOp (undefined::Vector e) "out"
       paramOut                  = arrayParam  (undefined::Vector e) "out"
-      arrLast                   = arrayDataOp (undefined::Vector e) "outLast"
-      paramLast                 = arrayParam  (undefined::Vector e) "outLast"
+      arrLast                   = arrayDataOp (undefined::Scalar e) "outLast"
+      paramLast                 = arrayParam  (undefined::Scalar e) "outLast"
       intType                   = (typeOf (integralType :: IntegralType Int))
 
       acc                       = locals (undefined::e) "acc"
@@ -227,12 +227,12 @@ mkScanl'Op aenv combine seed inD tmpD =
             }
 
             ;; check if this is the first chunk
-            %c2 = icmp eq $type:intType %ix, 0
+            %c2 = icmp eq $type:intType %i, 0
             ;; if it is, write the seed to memory
             if %c2 {
                 %c3 = icmp ne $type:intType %sz, 0
                 if %c3 {
-                   $bbsM:(writeArray arrLast zero acc)
+                    $bbsM:(writeArray arrOut zero acc)
                 }
             }
 
@@ -242,9 +242,9 @@ mkScanl'Op aenv combine seed inD tmpD =
                 %k1 = add $type:intType %k, 1
                 $bbsM:(x .=. delayedLinearIndex inD [k])
                 $bbsM:(acc .=. combine acc x)
-                %c4 = icmp ne $type:intType %k1, %sz
+                %c4 = icmp slt $type:intType %k1, %sz
                 if %c4 {
-                    $bbsM:(writeArray arrOut zero acc)
+                    $bbsM:(writeArray arrOut k1 acc)
                 }
             }
 
