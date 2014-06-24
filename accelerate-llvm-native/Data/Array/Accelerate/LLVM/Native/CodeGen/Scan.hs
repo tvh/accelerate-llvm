@@ -567,7 +567,7 @@ mkScanr1Pre aenv combine IRDelayed{..} =
             $bbsM:(acc .=. delayedLinearIndex [ix])
 
           reduce:
-            for $type:intType %j in %start1 downto %last
+            for $type:intType %k in %start1 downto %last
             {
                 $bbsM:(x .=. delayedLinearIndex [k])
                 $bbsM:(acc .=. combine acc x)
