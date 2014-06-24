@@ -66,7 +66,6 @@ import Data.Maybe
 import qualified LLVM.General.Context                           as LLVM
 #endif
 
-
 -- Array expression evaluation
 -- ---------------------------
 
@@ -92,8 +91,9 @@ instance Execute Native where
   fold1         = fold1Op
   permute       = permuteOp
   scanl         = scanlOp
-  scanr         = scanrOp
   scanl1        = scanl1Op
+  scanl'        = scanl'Op
+  scanr         = scanrOp
   scanr1        = scanr1Op
 
 
@@ -281,6 +281,49 @@ scanl1Op (NativeR k) gamma aenv () (Z :. sz) = do
                    callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,(gamma,aenv))
 
              return out
+
+-- Left inclusive scan
+--
+scanl'Op
+    :: forall aenv e. Elt e
+    => ExecutableR Native
+    -> Gamma aenv
+    -> Aval aenv
+    -> Stream
+    -> DIM1
+    -> LLVM Native (Vector e, Scalar e)
+scanl'Op (NativeR k) gamma aenv () (Z :. sz) = do
+  native@Native{..} <- gets llvmTarget
+
+  -- sequential reduction
+  if gangSize theGang == 1 || sz < defaultLargePPT
+     then do let tmp  = allocateArray (Z :. 0) :: Vector e
+                 out  = allocateArray (Z :. sz)
+                 last = allocateArray Z
+             --
+             liftIO $ do
+               executeNamedFunction k "scanl" $ \f ->
+                 callFFI f retVoid =<< marshal native () (0::Int,1::Int,0::Int,sz,sz,tmp,out,last,(gamma,aenv))
+
+             return (out, last)
+
+  -- Parallel reduction
+     else do let chunkSize = defaultLargePPT
+                 chunks    = sz `div` chunkSize
+                 tmp       = allocateArray (Z :. (chunks-1)) :: Vector e
+                 out       = allocateArray (Z :. sz)
+                 last      = allocateArray Z
+             --
+             liftIO $ do
+               executeNamedFunction k "scanl1Pre"           $ \f -> do
+                 runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
+                   callFFI f retVoid =<< marshal native () (start,end,chunkSize,tmp,(gamma,aenv))
+
+               executeNamedFunction k "scanl"               $ \f ->
+                 runExecutable fillP 1 (IE 0 chunks) mempty $ \start end _ -> do
+                   callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,last,(gamma,aenv))
+
+             return (out, last)
 
 -- Right inclusive scan
 --

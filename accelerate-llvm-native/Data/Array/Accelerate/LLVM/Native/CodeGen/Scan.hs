@@ -15,7 +15,9 @@ module Data.Array.Accelerate.LLVM.Native.CodeGen.Scan (
   mkScanr,
   
   mkScanl1,
-  mkScanr1
+  mkScanr1,
+
+  mkScanl'
 
 ) where
 
@@ -28,6 +30,7 @@ import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Type
 
 import Data.Array.Accelerate.LLVM.CodeGen.Base
+import Data.Array.Accelerate.LLVM.CodeGen.Constant
 import Data.Array.Accelerate.LLVM.CodeGen.Environment
 import Data.Array.Accelerate.LLVM.CodeGen.Exp
 import Data.Array.Accelerate.LLVM.CodeGen.Module
@@ -35,6 +38,8 @@ import Data.Array.Accelerate.LLVM.CodeGen.Monad
 import Data.Array.Accelerate.LLVM.CodeGen.Type
 
 import Data.Array.Accelerate.LLVM.Native.CodeGen.Base
+
+import Data.Coerce
 
 -- Inclusive scan, which returns an array of successive reduced values from the
 -- left.
@@ -135,17 +140,18 @@ mkScanlOp aenv combine seed inD tmpD =
     }
   |]
 
+
 -- Inclusive scan, which returns an array of successive reduced values from the
--- right.
+-- left.
 --
-mkScanr
+mkScanl'
     :: forall t aenv e. (Elt e)
     => Gamma aenv
     -> IRFun2    aenv (e -> e -> e)
     -> IRExp     aenv e
     -> IRDelayed aenv (Vector e)
-    -> CodeGen [Kernel t aenv (Vector e)]
-mkScanr aenv f s a =
+    -> CodeGen [Kernel t aenv (Vector e, Scalar e)]
+mkScanl' aenv f s a =
   let
       single [i]        = i
       single _          = $internalError "single" "expected single expression"
@@ -155,38 +161,44 @@ mkScanr aenv f s a =
       tmp               = IRDelayed {
           delayedExtent      = return shTmp
         , delayedLinearIndex = readArray arrTmp . single
-        , delayedIndex       = $internalError "mkScanr" "linear indexing of temporary array only"
+        , delayedIndex       = $internalError "mkScanl'" "linear indexing of temporary array only"
         }
   in do
-  [k1] <- mkScanr1Pre aenv f a
-  [k2] <- mkScanrOp aenv f s a tmp
-  return [k1,k2]
+  [k1] <- mkScanl1Pre aenv f a
+  [k2] <- mkScanl'Op aenv f s a tmp
+  return [coerce k1,k2]
 
 
-mkScanrOp
+mkScanl'Op
     :: forall t aenv e. (Elt e)
     => Gamma aenv
     -> IRFun2    aenv (e -> e -> e)
     -> IRExp     aenv e
     -> IRDelayed aenv (Vector e)
     -> IRDelayed aenv (Vector e)
-    -> CodeGen [Kernel t aenv (Vector e)]
-mkScanrOp aenv combine seed inD tmpD =
+    -> CodeGen [Kernel t aenv (Vector e, Scalar e)]
+mkScanl'Op aenv combine seed inD tmpD =
   let
       (start, end, paramGang)   = gangParam
       paramEnv                  = envParam aenv
       paramTmp                  = arrayParam  (undefined::Vector e) "tmp"
       arrOut                    = arrayDataOp (undefined::Vector e) "out"
       paramOut                  = arrayParam  (undefined::Vector e) "out"
-      intType                   = typeOf (integralType :: IntegralType Int)
+      arrLast                   = arrayDataOp (undefined::Vector e) "outLast"
+      paramLast                 = arrayParam  (undefined::Vector e) "outLast"
+      intType                   = (typeOf (integralType :: IntegralType Int))
 
       acc                       = locals (undefined::e) "acc"
       x                         = locals (undefined::e) "x"
+      ix                        = local intType "ix"
       k                         = local intType "k"
-      ix1                       = local intType "ix1"
+      k1                        = local intType "k1"
+      sz1                       = local intType "sz1"
+
+      zero                      = constOp $ num int 0
   in
-  makeKernelQ "scanr" [llgM|
-    define void @scanr
+  makeKernelQ "scanl" [llgM|
+    define void @scanl
     (
         $params:paramGang ,
         $type:intType %lastChunk,
@@ -194,17 +206,16 @@ mkScanrOp aenv combine seed inD tmpD =
         $type:intType %sz,
         $params:paramTmp,
         $params:paramOut,
+        $params:paramLast,
         $params:paramEnv
     )
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            %ix_   = mul $type:intType %i,   %chunkSize
-            %ix1   = sub $type:intType %sz,  %ix_
-            %ix    = sub $type:intType %ix1, 1
-            %last_ = sub $type:intType %ix,  %chunkSize
+            %ix    = mul $type:intType %i,  %chunkSize
+            %last1 = add $type:intType %ix, %chunkSize
             %c1    = icmp eq $type:intType %i, %lastChunk
-            %last  = select i1 %c1, $type:intType -1, $type:intType %last_
+            %last  = select i1 %c1, $type:intType %sz, $type:intType %last1
 
             ;; sum up the partial sums to get the first element
             $bbsM:(acc .=. seed)
@@ -212,24 +223,37 @@ mkScanrOp aenv combine seed inD tmpD =
             for $type:intType %k in 0 to %i
             {
                 $bbsM:(x .=. delayedLinearIndex tmpD [k])
-                $bbsM:(acc .=. combine acc x)
+                $bbsM:(acc .=. combine x acc)
             }
-            
+
             ;; check if this is the first chunk
-            %c2 = icmp eq $type:intType %i, 0
+            %c2 = icmp eq $type:intType %ix, 0
+            ;; if it is, write the seed to memory
             if %c2 {
-              ;; if it is, then write the seed element
-              $bbsM:(exec $ writeArray arrOut ix1 acc)
+                %c3 = icmp ne $type:intType %sz, 0
+                if %c3 {
+                   $bbsM:(writeArray arrLast zero acc)
+                }
             }
 
           reduce:
-            for $type:intType %k in %ix downto %last
+            for $type:intType %k in %ix to %last
             {
+                %k1 = add $type:intType %k, 1
                 $bbsM:(x .=. delayedLinearIndex inD [k])
-                $bbsM:(acc .=. combine x acc)
-                $bbsM:(writeArray arrOut k acc)
+                $bbsM:(acc .=. combine acc x)
+                %c4 = icmp ne $type:intType %k1, %sz
+                if %c4 {
+                    $bbsM:(writeArray arrOut zero acc)
+                }
+            }
+
+            ;;write the last element
+            if %c1 {
+                $bbsM:(writeArray arrLast zero acc)
             }
         }
+
         ret void
     }
   |]
@@ -377,7 +401,104 @@ mkScanl1Op aenv combine inD tmpD =
     }
   |]
 
+-- Inclusive scan, which returns an array of successive reduced values from the
+-- right.
+--
+mkScanr
+    :: forall t aenv e. (Elt e)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Vector e)
+    -> CodeGen [Kernel t aenv (Vector e)]
+mkScanr aenv f s a =
+  let
+      single [i]        = i
+      single _          = $internalError "single" "expected single expression"
 
+      arrTmp            = arrayDataOp  (undefined::Vector e) "tmp"
+      shTmp             = arrayShapeOp (undefined::Vector e) "tmp"
+      tmp               = IRDelayed {
+          delayedExtent      = return shTmp
+        , delayedLinearIndex = readArray arrTmp . single
+        , delayedIndex       = $internalError "mkScanr" "linear indexing of temporary array only"
+        }
+  in do
+  [k1] <- mkScanr1Pre aenv f a
+  [k2] <- mkScanrOp aenv f s a tmp
+  return [k1,k2]
+
+
+mkScanrOp
+    :: forall t aenv e. (Elt e)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Vector e)
+    -> IRDelayed aenv (Vector e)
+    -> CodeGen [Kernel t aenv (Vector e)]
+mkScanrOp aenv combine seed inD tmpD =
+  let
+      (start, end, paramGang)   = gangParam
+      paramEnv                  = envParam aenv
+      paramTmp                  = arrayParam  (undefined::Vector e) "tmp"
+      arrOut                    = arrayDataOp (undefined::Vector e) "out"
+      paramOut                  = arrayParam  (undefined::Vector e) "out"
+      intType                   = typeOf (integralType :: IntegralType Int)
+
+      acc                       = locals (undefined::e) "acc"
+      x                         = locals (undefined::e) "x"
+      k                         = local intType "k"
+      ix1                       = local intType "ix1"
+  in
+  makeKernelQ "scanr" [llgM|
+    define void @scanr
+    (
+        $params:paramGang ,
+        $type:intType %lastChunk,
+        $type:intType %chunkSize,
+        $type:intType %sz,
+        $params:paramTmp,
+        $params:paramOut,
+        $params:paramEnv
+    )
+    {
+        for $type:intType %i in $opr:start to $opr:end
+        {
+            %ix_   = mul $type:intType %i,   %chunkSize
+            %ix1   = sub $type:intType %sz,  %ix_
+            %ix    = sub $type:intType %ix1, 1
+            %last_ = sub $type:intType %ix,  %chunkSize
+            %c1    = icmp eq $type:intType %i, %lastChunk
+            %last  = select i1 %c1, $type:intType -1, $type:intType %last_
+
+            ;; sum up the partial sums to get the first element
+            $bbsM:(acc .=. seed)
+
+            for $type:intType %k in 0 to %i
+            {
+                $bbsM:(x .=. delayedLinearIndex tmpD [k])
+                $bbsM:(acc .=. combine acc x)
+            }
+
+            ;; check if this is the first chunk
+            %c2 = icmp eq $type:intType %i, 0
+            if %c2 {
+              ;; if it is, then write the seed element
+              $bbsM:(exec $ writeArray arrOut ix1 acc)
+            }
+
+          reduce:
+            for $type:intType %k in %ix downto %last
+            {
+                $bbsM:(x .=. delayedLinearIndex inD [k])
+                $bbsM:(acc .=. combine x acc)
+                $bbsM:(writeArray arrOut k acc)
+            }
+        }
+        ret void
+    }
+  |]
 
 -- Inclusive scan, which returns an array of successive reduced values from the
 -- right.
