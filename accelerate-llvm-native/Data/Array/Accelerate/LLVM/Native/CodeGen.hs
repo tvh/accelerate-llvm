@@ -37,5 +37,6 @@ instance Skeleton Native where
   scanl1 _      = mkScanl1
   scanr1 _      = mkScanr1
   scanl' _      = mkScanl'
+  scanr' _      = mkScanr'
   stencil _     = mkStencil
 

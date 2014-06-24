@@ -17,7 +17,8 @@ module Data.Array.Accelerate.LLVM.Native.CodeGen.Scan (
   mkScanl1,
   mkScanr1,
 
-  mkScanl'
+  mkScanl',
+  mkScanr'
 
 ) where
 
@@ -496,6 +497,124 @@ mkScanrOp aenv combine seed inD tmpD =
                 $bbsM:(writeArray arrOut k acc)
             }
         }
+        ret void
+    }
+  |]
+
+-- Inclusive scan, which returns an array of successive reduced values from the
+-- right.
+--
+mkScanr'
+    :: forall t aenv e. (Elt e)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Vector e)
+    -> CodeGen [Kernel t aenv (Vector e, Scalar e)]
+mkScanr' aenv f s a =
+  let
+      single [i]        = i
+      single _          = $internalError "single" "expected single expression"
+
+      arrTmp            = arrayDataOp  (undefined::Vector e) "tmp"
+      shTmp             = arrayShapeOp (undefined::Vector e) "tmp"
+      tmp               = IRDelayed {
+          delayedExtent      = return shTmp
+        , delayedLinearIndex = readArray arrTmp . single
+        , delayedIndex       = $internalError "mkScanr'" "linear indexing of temporary array only"
+        }
+  in do
+  [k1] <- mkScanr1Pre aenv f a
+  [k2] <- mkScanr'Op aenv f s a tmp
+  return [coerce k1,k2]
+
+mkScanr'Op
+    :: forall t aenv e. (Elt e)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Vector e)
+    -> IRDelayed aenv (Vector e)
+    -> CodeGen [Kernel t aenv (Vector e, Scalar e)]
+mkScanr'Op aenv combine seed inD tmpD =
+  let
+      (start, end, paramGang)   = gangParam
+      paramEnv                  = envParam aenv
+      paramTmp                  = arrayParam  (undefined::Vector e) "tmp"
+      arrOut                    = arrayDataOp (undefined::Vector e) "out"
+      paramOut                  = arrayParam  (undefined::Vector e) "out"
+      arrLast                   = arrayDataOp (undefined::Scalar e) "outLast"
+      paramLast                 = arrayParam  (undefined::Scalar e) "outLast"
+      intType                   = (typeOf (integralType :: IntegralType Int))
+
+      acc                       = locals (undefined::e) "acc"
+      x                         = locals (undefined::e) "x"
+      ix                        = local intType "ix"
+      k                         = local intType "k"
+      k1                        = local intType "k1"
+      sz1                       = local intType "sz1"
+
+      zero                      = constOp $ num int 0
+  in
+  makeKernelQ "scanr" [llgM|
+    define void @scanr
+    (
+        $params:paramGang ,
+        $type:intType %lastChunk,
+        $type:intType %chunkSize,
+        $type:intType %sz,
+        $params:paramTmp,
+        $params:paramOut,
+        $params:paramLast,
+        $params:paramEnv
+    )
+    {
+        for $type:intType %i in $opr:start to $opr:end
+        {
+            %ix_   = mul $type:intType %i,   %chunkSize
+            %ix1   = sub $type:intType %sz,  %ix_
+            %ix    = sub $type:intType %ix1, 1
+            %last_ = sub $type:intType %ix,  %chunkSize
+            %c1    = icmp eq $type:intType %i, %lastChunk
+            %last  = select i1 %c1, $type:intType -1, $type:intType %last_
+
+            ;; sum up the partial sums to get the first element
+            $bbsM:(acc .=. seed)
+
+            for $type:intType %k in 0 to %i
+            {
+                $bbsM:(x .=. delayedLinearIndex tmpD [k])
+                $bbsM:(acc .=. combine x acc)
+            }
+
+            ;; check if this is the first chunk
+            %c2 = icmp eq $type:intType %i, 0
+            ;; if it is, write the seed to memory
+            if %c2 {
+                %c3 = icmp ne $type:intType %sz, 0
+                if %c3 {
+                   $bbsM:(writeArray arrOut ix acc)
+                }
+            }
+
+          reduce:
+            for $type:intType %k in %ix downto %last
+            {
+                %k1 = sub $type:intType %k, 1
+                $bbsM:(x .=. delayedLinearIndex inD [k])
+                $bbsM:(acc .=. combine acc x)
+                %c4 = icmp ne $type:intType %k, 0
+                if %c4 {
+                    $bbsM:(writeArray arrOut k1 acc)
+                }
+            }
+
+            ;;write the last element
+            if %c1 {
+                $bbsM:(writeArray arrLast zero acc)
+            }
+        }
+
         ret void
     }
   |]
