@@ -140,6 +140,13 @@ class Assignable a b where
   (.=.) :: a -> CodeGen b -> CodeGen [BasicBlock]
 instance Assignable Name Operand where
   n .=. x = x >>= \x' -> assign [n] (return [x'])
+instance Assignable Operand Operand where
+  n .=. x =
+    let nameFromOperand (LocalReference _ n) = n
+        nameFromOperand op = $internalError "(.=.)" $ "can't assign to non-reference Operand" ++ show op
+
+        n' = nameFromOperand n
+    in x >>= \x' -> assign [n'] (return [x'])
 instance Assignable [Name] [Operand] where
   (.=.) = assign
 instance Assignable [Operand] [Operand] where
