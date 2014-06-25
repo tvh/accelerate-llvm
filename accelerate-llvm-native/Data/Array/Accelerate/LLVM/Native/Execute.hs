@@ -96,6 +96,8 @@ instance Execute Native where
   scanr         = scanrOp
   scanr1        = scanr1Op
   scanr'        = scanr'Op
+  foldSeg       = foldSegOp
+  fold1Seg      = foldSegOp
 
 
 -- Skeleton implementation
@@ -172,6 +174,28 @@ foldCore (NativeR k) gamma aenv () (sh :. sz) = do
                  callFFI f retVoid =<< marshal native () (0::Int,n,tmp,out,(gamma,aenv))
 
              return out
+
+foldSegOp
+    :: forall aenv sh e. (Shape sh, Elt e)
+    => ExecutableR Native
+    -> Gamma aenv
+    -> Aval aenv
+    -> Stream
+    -> (sh :. Int)
+    -> DIM1
+    -> LLVM Native (Array (sh:.Int) e)
+foldSegOp (NativeR k) gamma aenv () (sh :. n) (Z  :. sz) = do
+  native@Native{..} <- gets llvmTarget
+
+  let out = allocateArray (sh :. (sz-1))
+      ppt = defaultSmallPPT `max` (defaultLargePPT `div` sz)
+
+  liftIO $ do
+    executeFunction k                                 $ \f ->
+      runExecutable fillP ppt (IE 0 (size sh * (sz-1))) mempty $ \start end _ ->
+        callFFI f retVoid =<< marshal native () (start, end, n, out, (gamma,aenv))
+
+  return out
 
 
 -- Forward permutation, specified by an indexing mapping into an array and a

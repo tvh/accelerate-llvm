@@ -118,7 +118,7 @@ config =  Phase
   , recoverExpSharing      = True
   , floatOutAccFromExp     = True
   , enableAccFusion        = True
-  , convertOffsetOfSegment = numCapabilities > 1
+  , convertOffsetOfSegment = True
   }
 
 

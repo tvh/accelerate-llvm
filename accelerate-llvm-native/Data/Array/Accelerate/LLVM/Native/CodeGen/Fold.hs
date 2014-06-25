@@ -46,6 +46,7 @@ import Data.Array.Accelerate.LLVM.Native.CodeGen.Loop
 
 -- standard library
 import GHC.Conc
+import Prelude hiding (fromIntegral)
 
 
 -- Reduce an array along the innermost dimension
@@ -317,6 +318,157 @@ mkFold1All' aenv combine IRDelayed{..} =
             writeArray arrTmp tid r
             return_
   return [k1,k2]
+
+
+-- Segmented Reduction
+-- -------------------
+mkFoldSeg
+    :: forall t sh e i aenv. (Shape sh, Elt e, Elt i, IsIntegral i)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRExp     aenv e
+    -> IRDelayed aenv (Array (sh:.Int) e)
+    -> IRDelayed aenv (Segments i)
+    -> CodeGen [Kernel t aenv (Array (sh:.Int) e)]
+mkFoldSeg aenv combine seed arr segs =
+  let
+      (start, end, paramGang)   = gangParam
+      paramEnv                  = envParam aenv
+      paramStride               = [Parameter (typeOf (integralType :: IntegralType Int)) "ix.stride" []]
+      arrOut                    = arrayDataOp (undefined::Array (sh:.Int) e) "out"
+      paramOut                  = arrayParam  (undefined::Array (sh:.Int) e) "out"
+      intType                   = typeOf (integralType :: IntegralType Int)
+
+      segT                      = integralType :: IntegralType i
+      segType                   = typeOf segT
+
+      n                         = local intType "ix.stride"
+      acc                       = locals (undefined::e) "acc"
+      y                         = locals (undefined::e) "y"
+      i                         = local intType "i"
+      j                         = local intType "j"
+      k                         = local intType "k"
+      l_                        = local segType "l_"
+      l                         = local intType "l"
+      k1                        = local intType "k1"
+      sz                        = local intType "sz"
+      segStart                  = local segType "segStart"
+      segEnd                    = local segType "segEnd"
+  in
+  makeKernelQ "foldSeg" [llgM|
+    define void @foldSeg
+    (
+        $params:paramGang,
+        $params:paramStride,
+        $params:paramOut,
+        $params:paramEnv
+    )
+    {
+          $bbsM:([sz] .=. delayedExtent segs)
+          %sz_ = sub $type:intType %sz, 1
+
+        loop:
+          for $type:intType %j in $opr:start to $opr:end
+          {
+              %k   = urem $type:intType %j, %sz_
+              %k1  = add  $type:intType %k, 1
+
+              $bbsM:(acc .=. seed)
+              $bbsM:([segStart] .=. delayedLinearIndex segs [k])
+              $bbsM:([segEnd]   .=. delayedLinearIndex segs [k1])
+
+            reduce:
+              for $type:segType %l_ in %segStart to %segEnd
+              {
+                  $bbsM:(l .=. fromIntegral segT int l_)
+                  %i_  = udiv $type:intType %j, %sz_
+                  %i__ = mul $type:intType %i_, $opr:n
+                  %i   = add $type:intType %i__, %l
+                  $bbsM:(y .=. delayedLinearIndex arr [i])
+                  $bbsM:(acc .=. combine acc y)
+              }
+
+              $bbsM:(writeArray arrOut j acc)
+          }
+          ret void
+      }
+  |]
+
+
+mkFold1Seg
+    :: forall t sh e i aenv. (Shape sh, Elt e, Elt i, IsIntegral i)
+    => Gamma aenv
+    -> IRFun2    aenv (e -> e -> e)
+    -> IRDelayed aenv (Array (sh:.Int) e)
+    -> IRDelayed aenv (Segments i)
+    -> CodeGen [Kernel t aenv (Array (sh:.Int) e)]
+mkFold1Seg aenv combine arr segs =
+  let
+      (start, end, paramGang)   = gangParam
+      paramEnv                  = envParam aenv
+      paramStride               = [Parameter (typeOf (integralType :: IntegralType Int)) "ix.stride" []]
+      arrOut                    = arrayDataOp (undefined::Array (sh:.Int) e) "out"
+      paramOut                  = arrayParam  (undefined::Array (sh:.Int) e) "out"
+      intType                   = typeOf (integralType :: IntegralType Int)
+
+      segT                      = integralType :: IntegralType i
+      segType                   = typeOf segT
+
+      n                         = local intType "ix.stride"
+      acc                       = locals (undefined::e) "acc"
+      y                         = locals (undefined::e) "y"
+      i                         = local intType "i"
+      j                         = local intType "j"
+      k                         = local intType "k"
+      l_                        = local segType "l_"
+      l                         = local intType "l"
+      k1                        = local intType "k1"
+      sz                        = local intType "sz"
+      segStart                  = local segType "segStart"
+      segEnd                    = local segType "segEnd"
+  in
+  makeKernelQ "fold1Seg" [llgM|
+    define void @fold1Seg
+    (
+        $params:paramGang,
+        $params:paramStride,
+        $params:paramOut,
+        $params:paramEnv
+    )
+    {
+          $bbsM:([sz] .=. delayedExtent segs)
+          %sz_ = sub $type:intType %sz, 1
+
+        loop:
+          for $type:intType %j in $opr:start to $opr:end
+          {
+              %k   = srem $type:intType %j, %sz_
+              %k1  = add  $type:intType %k, 1
+
+              $bbsM:([segStart] .=. delayedLinearIndex segs [k])
+              $bbsM:([segEnd]   .=. delayedLinearIndex segs [k1])
+              $bbsM:(l .=. fromIntegral segT int segStart)
+              %i_  = udiv $type:intType %j, %sz_
+              %i__ = mul $type:intType %i_, $opr:n
+              %i  = add $type:intType %i__, %l
+              $bbsM:(acc .=. delayedLinearIndex arr [i])
+
+              %segStart1 = add $type:segType %segStart, 1
+
+            reduce:
+              for $type:segType %l_ in %segStart1 to %segEnd
+              {
+                  $bbsM:(l .=. fromIntegral segT int l_)
+                  %i = add $type:intType %i__, %l
+                  $bbsM:(y .=. delayedLinearIndex arr [i])
+                  $bbsM:(acc .=. combine acc y)
+              }
+
+              $bbsM:(writeArray arrOut j acc)
+          }
+          ret void
+      }
+  |]
 
 
 -- Reduction loops

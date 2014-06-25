@@ -38,5 +38,7 @@ instance Skeleton Native where
   scanr1 _      = mkScanr1
   scanl' _      = mkScanl'
   scanr' _      = mkScanr'
+  foldSeg _     = mkFoldSeg
+  fold1Seg _    = mkFold1Seg
   stencil _     = mkStencil
 
