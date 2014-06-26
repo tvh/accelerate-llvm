@@ -131,11 +131,19 @@ mkFold' aenv combine seed IRDelayed{..} =
     define void @fold
     (
         $params:paramGang,
+        i1 %shEmpty,
         $params:paramStride,
         $params:paramOut,
         $params:paramEnv
     )
     {
+        if %shEmpty {
+          $bbsM:(x .=. seed)
+          for $type:intType %sh in $opr:start to $opr:end {
+              $bbsM:(writeArray arrOut sh x)
+          }
+
+        } else {
           %sz = mul $type:intType $opr:start, $opr:n
 
         loop:
@@ -154,8 +162,9 @@ mkFold' aenv combine seed IRDelayed{..} =
               $bbsM:(writeArray arrOut sh x)
               %sz = $type:intType %next
           }
-          ret void
       }
+      ret void
+  }
   |]
 
 
@@ -191,11 +200,16 @@ mkFold1' aenv combine IRDelayed{..} =
     define void @fold
     (
         $params:paramGang,
+        i1 %shEmpty,
         $params:paramStride,
         $params:paramOut,
         $params:paramEnv
     )
-    {     %sz = mul $type:intType $opr:start, $opr:n
+    {
+        if %shEmpty {
+          unreachable
+        } else {
+          %sz = mul $type:intType $opr:start, $opr:n
 
           for $type:intType %sh in $opr:start to $opr:end
           {
@@ -213,8 +227,8 @@ mkFold1' aenv combine IRDelayed{..} =
               $bbsM:(writeArray arrOut sh acc)
               %sz = $type:intType %next
           }
-
-          ret void
+        }
+        ret void
     }
   |]
 

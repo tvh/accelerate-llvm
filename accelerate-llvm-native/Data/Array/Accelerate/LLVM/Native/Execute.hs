@@ -121,7 +121,7 @@ fold1Op
     -> LLVM Native (Array sh e)
 fold1Op kernel gamma aenv stream sh@(_ :. sz)
   = $boundsCheck "fold1" "empty array" (sz > 0)
-  $ foldCore kernel gamma aenv stream sh
+  $ foldCore kernel gamma aenv stream sh False
 
 -- Make space for the neutral element
 foldOp
@@ -133,7 +133,9 @@ foldOp
     -> (sh :. Int)
     -> LLVM Native (Array sh e)
 foldOp kernel gamma aenv stream (sh :. sz)
-  = foldCore kernel gamma aenv stream ((listToShape . P.map (max 1) . shapeToList $ sh) :. sz)
+  = let sh' = listToShape . P.map (max 1) . shapeToList $ sh
+        shEmpty = shapeToList sh /= shapeToList sh'
+    in foldCore kernel gamma aenv stream (sh' :. sz) shEmpty
 
 foldCore
     :: forall aenv sh e. (Shape sh, Elt e)
@@ -142,8 +144,9 @@ foldCore
     -> Aval aenv
     -> Stream
     -> (sh :. Int)
+    -> Bool
     -> LLVM Native (Array sh e)
-foldCore (NativeR k) gamma aenv () (sh :. sz) = do
+foldCore (NativeR k) gamma aenv () (sh :. sz) shEmpty = do
   native@Native{..} <- gets llvmTarget
 
   -- Either (1) multidimensional reduction; or
@@ -155,7 +158,7 @@ foldCore (NativeR k) gamma aenv () (sh :. sz) = do
              liftIO $ do
                executeFunction k                                 $ \f ->
                  runExecutable fillP ppt (IE 0 (size sh)) mempty $ \start end _ ->
-                   callFFI f retVoid =<< marshal native () (start, end, sz, out, (gamma,aenv))
+                   callFFI f retVoid =<< marshal native () (start, end, shEmpty, sz, out, (gamma,aenv))
 
              return out
 

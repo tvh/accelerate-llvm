@@ -48,6 +48,9 @@ type instance M.ArgR Native = FFI.Arg
 instance M.Marshalable Native Int where
   marshal' _ _ x = return $ DL.singleton (FFI.argInt x)
 
+instance M.Marshalable Native Bool where
+  marshal' _ _ x = return $ DL.singleton (FFI.argWord8 (toEnum $ fromEnum x))
+
 instance M.Marshalable Native (Gamma aenv, Aval aenv) where     -- overlaps with instance (a,b)
   marshal' t s (gamma, aenv)
     = fmap DL.concat
