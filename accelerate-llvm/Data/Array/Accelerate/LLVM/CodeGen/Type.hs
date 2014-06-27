@@ -23,6 +23,7 @@ import Data.Array.Accelerate.LLVM.Util
 import LLVM.General.AST
 import LLVM.General.AST.Float
 import LLVM.General.AST.AddrSpace
+import LLVM.General.AST.Type
 import qualified LLVM.General.AST.Constant as C
 
 -- standard library
@@ -154,7 +155,12 @@ bitSizeOfType t =
 typeOfConstant :: C.Constant -> Type
 typeOfConstant C.Int{..} = IntegerType integerBits
 typeOfConstant C.Float{..} = case floatValue of
-  _ -> undefined
+  Half{}      -> half
+  Single{}    -> float
+  Double{}    -> double
+  Quadruple{} -> fp128
+  X86_FP80{}  -> x86_fp80
+  PPC_FP128{} -> ppc_fp128
 typeOfConstant C.Null{..} = constantType
 typeOfConstant C.Struct{..} =
   StructureType isPacked (map typeOfConstant memberValues)
