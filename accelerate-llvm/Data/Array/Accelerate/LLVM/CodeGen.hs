@@ -6,6 +6,8 @@
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE ViewPatterns        #-}
 {-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE FlexibleContexts    #-}
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.CodeGen
 -- Copyright   : [2014] Trevor L. McDonell, Sean Lee, Vinod Grover, NVIDIA Corporation
@@ -23,7 +25,7 @@ module Data.Array.Accelerate.LLVM.CodeGen (
 ) where
 
 -- accelerate
-import Data.Array.Accelerate.AST                                hiding ( Val(..), prj, stencil )
+import Data.Array.Accelerate.AST                                hiding ( Val(..), prj, stencil, stencilAccess )
 import Data.Array.Accelerate.Array.Sugar
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Type
@@ -38,6 +40,9 @@ import Data.Array.Accelerate.LLVM.CodeGen.Exp
 import Data.Array.Accelerate.LLVM.CodeGen.Intrinsic
 import Data.Array.Accelerate.LLVM.CodeGen.Module
 import Data.Array.Accelerate.LLVM.CodeGen.Monad
+
+import LLVM.General.AST (Operand)
+import Data.Proxy
 
 -- standard library
 import Prelude                                                  hiding ( map, scanl, scanl1, scanr, scanr1 )
@@ -175,21 +180,18 @@ class Skeleton arch where
   stencil       :: (Elt a, Elt b, Stencil sh a stencil)
                 => arch
                 -> Gamma aenv
-                -> stencil      -- ignored, is used to fix the types
+                -> Proxy (stencil,a)
                 -> IRFun1 aenv (stencil -> b)
                 -> Boundary (IRExp aenv a)
-                -> IRDelayed aenv (Array sh a)
                 -> CodeGen [Kernel arch aenv (Array sh b)]
 
   stencil2      :: (Elt a, Elt b, Elt c, Stencil sh a stencil1, Stencil sh b stencil2)
                 => arch
                 -> Gamma aenv
-                -> (stencil1, stencil2)      -- ignored, is used to fix the types
+                -> Proxy ((stencil1,a), (stencil2,b))
                 -> IRFun2 aenv (stencil1 -> stencil2 -> c)
                 -> Boundary (IRExp aenv a)
-                -> IRDelayed aenv (Array sh a)
                 -> Boundary (IRExp aenv b)
-                -> IRDelayed aenv (Array sh b)
                 -> CodeGen [Kernel arch aenv (Array sh c)]
 
 
@@ -221,8 +223,8 @@ llvmOfAcc arch (Manifest pacc) aenv = runLLVM $
     Scanr' f z a            -> scanr' arch aenv (travF2 f) (travE z) (travD a)
     Scanr1 f a              -> scanr1 arch aenv (travF2 f) (travD a)
     Permute f _ p a         -> permute arch aenv (travF2 f) (travF1 p) (travD a)
-    Stencil f b a           -> stencil arch aenv (travS1 f) (travF1 f) (travB a b) (travD a)
-    Stencil2 f b1 a1 b2 a2  -> stencil2 arch aenv (travS2 f) (travF2 f) (travB a1 b1) (travD a1) (travB a2 b2) (travD a2) 
+    Stencil f b a           -> stencil arch aenv (travS1 f a) (travF1 f) (travB a b)
+    Stencil2 f b1 a1 b2 a2  -> stencil2 arch aenv (travS2 f a1 a2) (travF2 f) (travB a1 b1) (travB a2 b2) 
 
     -- Non-computation forms: sadness
     Alet{}                  -> unexpectedError pacc
@@ -268,11 +270,11 @@ llvmOfAcc arch (Manifest pacc) aenv = runLLVM $
       = Constant $ return
       $ P.map constOp (constant (eltType (undefined::e)) c)
 
-    travS1 :: DelayedFun aenv (a -> b) -> a
-    travS1 _ = undefined
+    travS1 :: DelayedFun aenv (s -> b) -> DelayedOpenAcc aenv (Array sh a) -> Proxy (s,a)
+    travS1 _ _ = Proxy
 
-    travS2 :: DelayedFun aenv (a -> b -> c) -> (a, b)
-    travS2 _ = (undefined, undefined)
+    travS2 :: DelayedFun aenv (s1 -> s2 -> c) -> DelayedOpenAcc aenv (Array sh a) -> DelayedOpenAcc aenv (Array sh b) -> Proxy ((s1,a), (s2,b))
+    travS2 _ _ _ = Proxy
 
     -- sadness
     unexpectedError x   = $internalError "llvmOfAcc" $ "unexpected array primitive: " ++ showPreAccOp x

@@ -41,4 +41,5 @@ instance Skeleton Native where
   foldSeg _     = mkFoldSeg
   fold1Seg _    = mkFold1Seg
   stencil _     = mkStencil
+  stencil2 _    = mkStencil2
 

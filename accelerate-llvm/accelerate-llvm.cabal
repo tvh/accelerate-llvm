@@ -65,6 +65,7 @@ Library
     Data.Array.Accelerate.LLVM.CodeGen.Loop
     Data.Array.Accelerate.LLVM.CodeGen.Module
     Data.Array.Accelerate.LLVM.CodeGen.Monad
+    Data.Array.Accelerate.LLVM.CodeGen.Stencil
     Data.Array.Accelerate.LLVM.CodeGen.Type
     Data.Array.Accelerate.LLVM.Compile
     Data.Array.Accelerate.LLVM.Debug

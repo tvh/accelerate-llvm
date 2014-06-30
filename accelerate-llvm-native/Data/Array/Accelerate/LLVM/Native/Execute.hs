@@ -28,6 +28,7 @@ module Data.Array.Accelerate.LLVM.Native.Execute (
 ) where
 
 -- accelerate
+import Data.Array.Accelerate                                    ( arrayShape )
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Array.Data
 import Data.Array.Accelerate.Array.Sugar
@@ -49,7 +50,7 @@ import Control.Parallel.Meta.Worker                             ( gangSize )
 import Data.Array.Accelerate.LLVM.Native.Execute.LBS
 
 -- library
-import Prelude                                                  hiding ( map, scanl, scanr )
+import Prelude                                                  hiding ( map, scanl, scanr, last )
 import Data.Monoid                                              ( mempty )
 import Data.Word                                                ( Word8 )
 import Control.Monad.State                                      ( gets )
@@ -98,6 +99,8 @@ instance Execute Native where
   scanr'        = scanr'Op
   foldSeg       = foldSegOp
   fold1Seg      = foldSegOp
+  stencil1      = stencil1Op
+  stencil2      = stencil2Op
 
 
 -- Skeleton implementation
@@ -478,6 +481,38 @@ scanr'Op (NativeR k) gamma aenv () (Z :. sz) = do
                    callFFI f retVoid =<< marshal native () (start,end,(chunks-1),chunkSize,sz,tmp,out,last,(gamma,aenv))
 
              return (out, last)
+
+stencil1Op
+    :: (Shape sh, Elt a, Elt b)
+    => ExecutableR Native
+    -> Gamma aenv
+    -> Aval aenv
+    -> Stream
+    -> Array sh a
+    -> LLVM Native (Array sh b)
+stencil1Op kernel gamma aenv () arr = do
+  let sh = arrayShape arr
+      out = allocateArray sh
+  native <- gets llvmTarget
+  liftIO  $ executeOp native kernel mempty gamma aenv (IE 0 (size sh)) (arr,out)
+  return out
+
+stencil2Op
+    :: (Shape sh, Elt a, Elt b, Elt c)
+    => ExecutableR Native
+    -> Gamma aenv
+    -> Aval aenv
+    -> Stream
+    -> Array sh a
+    -> Array sh b
+    -> LLVM Native (Array sh c)
+stencil2Op kernel gamma aenv () arr1 arr2 = do
+  let sh = arrayShape arr1
+      out = allocateArray sh
+  native <- gets llvmTarget
+  liftIO  $ executeOp native kernel mempty gamma aenv (IE 0 (size sh)) (arr1,arr2,out)
+  return out
+
 
 -- Skeleton execution
 -- ------------------
