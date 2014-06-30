@@ -426,9 +426,14 @@ readArray' :: Bool -> [Operand] -> Operand -> CodeGen [Operand]
 readArray' volatile arr i =
   forM arr $ \a -> do
     let t = typeOfOperand a
-    p <- instr t $ GetElementPtr False a [i] []
-    v <- instr (pointerReferent t) $ Load volatile p Nothing 0 []
-    return v
+    case t of
+      PointerType t' _ -> do
+        p <- instr t $ GetElementPtr False a [i] []
+        v <- instr t' $ Load volatile p Nothing 0 []
+        return v
+      _ -> do
+        error $ show (t,a)
+        $internalError "readArray'" "trying to read from a non-pointer Operand"
 
 -- Write elements into an array.
 --
