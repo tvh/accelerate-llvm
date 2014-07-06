@@ -26,6 +26,7 @@ import LLVM.General.Module                                      as LLVM
 import LLVM.General.Context
 import LLVM.General.Target
 import LLVM.General.ExecutionEngine
+import LLVM.General.Threading
 
 -- accelerate
 import Data.Array.Accelerate.Error                              ( internalError )
@@ -69,6 +70,8 @@ instance Intrinsic Native
 --
 compileForNativeTarget :: DelayedOpenAcc aenv a -> Gamma aenv -> LLVM Native (ExecutableR Native)
 compileForNativeTarget acc aenv = do
+  liftIO $ setMultithreaded True
+
   target <- gets llvmTarget
 
   -- Generate code for this Acc operation
