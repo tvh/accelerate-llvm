@@ -110,7 +110,7 @@ mkStencil2 aenv _ apply bndy1 bndy2 =
       stencil1T                 = Proxy :: Proxy (stencil1,a)
       stencil2T                 = Proxy :: Proxy (stencil2,b)
 
-      x                         = locals (undefined::b) "x"
+      x                         = locals (undefined::c) "x"
       i                         = local intType "i"
       ix                        = locals (undefined::sh) "ix"
   in
