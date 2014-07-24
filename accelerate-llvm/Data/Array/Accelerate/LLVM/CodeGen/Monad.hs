@@ -125,7 +125,7 @@ instance B.CodeGenMonad CodeGen where
 assign :: [Name] -> CodeGen [Operand] -> CodeGen [BasicBlock]
 xs `assign` f = do
   xs' <- f
-  zipWithM_ mkSelect xs xs'
+  zipWithM' mkSelect xs xs'
   let n = newBlock' (Name "nextblock")
   _ <- br n
   createBlocks
@@ -135,6 +135,9 @@ xs `assign` f = do
     let t = typeOfOperand x
         true = ConstantOperand $ C.Int 1 1
     instr' t n $ Select true x x []
+  zipWithM' f []     []     = return ()
+  zipWithM' f (x:xs) (y:ys) = f x y >> zipWithM' f xs ys
+  zipWithM' _ _      _      = $internalError "assign" "argument mismatch"
 
 class Assignable a b where
   (.=.) :: a -> CodeGen b -> CodeGen [BasicBlock]
