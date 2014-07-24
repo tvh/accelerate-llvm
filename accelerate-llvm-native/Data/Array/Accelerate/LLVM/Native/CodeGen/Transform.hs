@@ -54,8 +54,8 @@ mkTransform aenv permute apply IRDelayed{..} =
       intType                   = typeOf (integralType :: IntegralType Int)
 
       i                         = local intType "i"
-      ix                        = locals (undefined::sh) "ix"
-      ix'                       = locals (undefined::sh') "ix'"
+      ix                        = locals (undefined::sh') "ix"
+      ix'                       = locals (undefined::sh) "ix'"
       xs                        = locals (undefined::a) "xs"
       ys                        = locals (undefined::b) "ys"
   in
