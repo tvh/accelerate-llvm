@@ -75,6 +75,8 @@ mkPermute aenv combine permute IRDelayed{..} =
       paramOut                  = arrayParam   (undefined::Array sh' e) "out"
       paramEnv                  = envParam aenv
 
+      shIn                      = arrayShapeOp (undefined::Array sh e) ""
+
       ignore                    = map (constOp . integral integralType)
                                 $ Sugar.shapeToList (Sugar.ignore :: sh')
 
@@ -83,7 +85,7 @@ mkPermute aenv combine permute IRDelayed{..} =
   in do
   makeKernel "permute" (paramGang ++ paramBarrier ++ paramOut ++ paramEnv) $ do
     imapFromTo start end $ \i -> do
-      ix   <- indexOfInt shOut i                -- convert to multidimensional index
+      ix   <- indexOfInt shIn i                 -- convert to multidimensional index
       ix'  <- permute ix                        -- apply backwards index permutation
 
       -- If this index will not be used, jump immediately to the exit
