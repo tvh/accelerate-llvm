@@ -56,27 +56,22 @@ access
   -> CodeGen [Operand]
 access bndy sh ix arr off = do
   ix' <- zipWithM (add int) ix off
-  case bndy of
-    Clamp -> do
-      ix'' <- clamp sh ix'
-      i <- intOfIndex sh ix''
-      readArray arr i
-    Mirror -> do
-      ix'' <- mirror sh ix'
-      i <- intOfIndex sh ix''
-      readArray arr i
-    Wrap -> do
-      ix'' <- wrap sh ix'
-      i <- intOfIndex sh ix''
-      readArray arr i
-    Constant as -> do
+  let op = case bndy of
+        Constant as -> Left as
+        Clamp       -> Right clamp
+        Mirror      -> Right mirror
+        Wrap        -> Right wrap
+  case op of
+    Left as -> do
       as'       <- as
       c         <- inRange sh ix'
-
       i         <- intOfIndex sh ix'
       xs        <- readArray arr i
-
       zipWithM (\a x -> instr (typeOfOperand a) $ Select c x a []) as' xs
+    Right op' -> do
+      ix'' <- op' sh ix'
+      i <- intOfIndex sh ix''
+      readArray arr i
 
 
 -- Test whether an index lies within the boundaries of a shape (first argument)
