@@ -47,7 +47,7 @@ import Data.Array.Accelerate.LLVM.Native.CodeGen                ( )
 import qualified Data.Array.Accelerate.LLVM.Native.Debug        as Debug
 
 -- standard library
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.State
 import Data.Maybe
 
@@ -105,7 +105,7 @@ compileForNativeTarget acc aenv = do
 
   return $! NativeR fun
   where
-    runError    = either ($internalError "compileForNativeTarget") return <=< runErrorT
+    runError    = either ($internalError "compileForNativeTarget") return <=< runExceptT
 
     opt         = Just 3        -- optimisation level
     model       = Nothing       -- code model?
