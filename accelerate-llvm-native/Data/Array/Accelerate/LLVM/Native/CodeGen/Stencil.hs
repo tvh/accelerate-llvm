@@ -52,7 +52,6 @@ mkStencil aenv stencilT apply bndy =
       paramEnv                  = envParam aenv
       arrOut                    = arrayDataOp  (undefined::Array sh b) "out"
       paramOut                  = arrayParam   (undefined::Array sh b) "out"
-      shOut                     = arrayShapeOp (undefined::Array sh b) "out"
       arrIn                     = arrayDataOp  (undefined::Array sh a) "in"
       paramIn                   = arrayParam   (undefined::Array sh a) "in"
       shIn                      = arrayShapeOp (undefined::Array sh a) "in"
@@ -75,7 +74,7 @@ mkStencil aenv stencilT apply bndy =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
-            $bbsM:(ix .=. indexOfInt shOut i)
+            $bbsM:(ix .=. indexOfInt shIn i)
             $bbsM:(x .=. (stencilAccess stencilT shT shIn arrIn bndy ix >>= apply))
             $bbsM:(writeArray arrOut i x)
         }
