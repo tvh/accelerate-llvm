@@ -107,7 +107,11 @@ mkScanlOp aenv combine seed inD tmpD =
     {
         for $type:intType %i in $opr:start to $opr:end
         {
+            ;; calculate the start of the current chunk
             %ix    = mul $type:intType %i,  %chunkSize
+
+            ;; Determine the end of the current chunk. If this is the last chunk,
+            ;; then this is the same as the last element of the array.
             %last1 = add $type:intType %ix, %chunkSize
             %c1    = icmp eq $type:intType %i, %lastChunk
             %last  = select i1 %c1, $type:intType %sz, $type:intType %last1
