@@ -75,7 +75,6 @@ Library
     Data.Array.Accelerate.LLVM.Native.CodeGen.Permute
     Data.Array.Accelerate.LLVM.Native.CodeGen.Scan
     Data.Array.Accelerate.LLVM.Native.CodeGen.Stencil
-    Data.Array.Accelerate.LLVM.Native.CodeGen.Transform
 
     Data.Array.Accelerate.LLVM.Native.Execute.Async
     Data.Array.Accelerate.LLVM.Native.Execute.Environment
