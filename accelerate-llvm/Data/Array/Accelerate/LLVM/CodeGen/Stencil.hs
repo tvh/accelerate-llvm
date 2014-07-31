@@ -114,7 +114,7 @@ mirror = zipWithM f
       i' <- instr intType $ Select c1 i l []
       u <- A.sub int sz =<< A.sub int i' =<< A.sub int sz (constOp (num int 2))
       c2 <- A.lt int i sz
-      instr intType $ Select c2 i u []
+      instr intType $ Select c2 i' u []
 
 -- Indices out of bounds are wrapped to the opposite edge of the shape
 --
