@@ -507,7 +507,9 @@ stencil2Op
     -> Array sh b
     -> LLVM Native (Array sh c)
 stencil2Op kernel gamma aenv () arr1 arr2 = do
-  let sh = arrayShape arr1
+  let sh1 = arrayShape arr1
+      sh2 = arrayShape arr2
+      sh  = intersect sh1 sh2
       out = allocateArray sh
   native <- gets llvmTarget
   liftIO  $ executeOp native kernel mempty gamma aenv (IE 0 (size sh)) (arr1,arr2,out)
