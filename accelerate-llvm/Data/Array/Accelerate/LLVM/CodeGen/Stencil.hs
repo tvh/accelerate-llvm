@@ -65,7 +65,8 @@ access bndy sh ix arr off = do
     Left as -> do
       as'       <- as
       c         <- inRange sh ix'
-      i         <- intOfIndex sh ix'
+      ix''      <- wrap sh ix'
+      i         <- intOfIndex sh ix''
       xs        <- readArray arr i
       zipWithM (\a x -> instr (typeOfOperand a) $ Select c x a []) as' xs
     Right op' -> do
