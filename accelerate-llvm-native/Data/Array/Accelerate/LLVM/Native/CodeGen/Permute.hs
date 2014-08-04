@@ -20,6 +20,7 @@ module Data.Array.Accelerate.LLVM.Native.CodeGen.Permute
 -- llvm-general
 import LLVM.General.AST
 import LLVM.General.AST.RMWOperation
+import LLVM.General.AST.Type (ptr)
 
 -- accelerate
 import Data.Array.Accelerate.Type
@@ -129,7 +130,7 @@ spinlock barrier' i action =
   loop  <- newBlock "spinlock.entry"
   done  <- newBlock "spinlock.critical-section"
 
-  addr  <- instr (typeOf word8) $ GetElementPtr False barrier [i] []
+  addr  <- instr (ptr (typeOf word8)) $ GetElementPtr False barrier [i] []
   _     <- br loop
   setBlock loop
 
