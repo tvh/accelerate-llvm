@@ -133,7 +133,7 @@ mkPermute aenv combine permute IRDelayed{..} =
                     ;; the slot was unlocked we just acquired it, otherwise the state remains
                     ;; unchanged (previously locked) and we need to spin until it becomes
                     ;; unlocked.
-                    %lock = atomicrmw volatile xchg i8* %baddr, i8 1 acquire
+                    %lock = atomicrmw volatile xchg i8* %baddr, i8 1 acq_rel
                     %c2 = icmp eq i8 %lock, 0
                 }
 
