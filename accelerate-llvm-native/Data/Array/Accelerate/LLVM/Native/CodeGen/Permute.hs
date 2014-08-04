@@ -146,7 +146,7 @@ mkPermute aenv combine permute IRDelayed{..} =
                 ;; MOV instruction rather than the slower locked XCHG. This is due to subtle
                 ;; memory ordering rules which allow this, even though MOV is not a full
                 ;; memory barrier.
-                store atomic volatile i8 0, i8* %baddr release, align 0
+                store atomic volatile i8 0, i8* %baddr release, align 1
             }
         }
         ret void
