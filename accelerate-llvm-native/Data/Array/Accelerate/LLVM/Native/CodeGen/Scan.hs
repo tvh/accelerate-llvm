@@ -195,10 +195,8 @@ mkScanl'Op aenv combine seed inD tmpD =
 
       acc                       = locals (undefined::e) "acc"
       x                         = locals (undefined::e) "x"
-      ix                        = local intType "ix"
       k                         = local intType "k"
       k1                        = local intType "k1"
-      sz1                       = local intType "sz1"
 
       zero                      = constOp $ num int 0
   in
@@ -556,7 +554,6 @@ mkScanr'Op aenv combine seed inD tmpD =
       ix                        = local intType "ix"
       k                         = local intType "k"
       k1                        = local intType "k1"
-      sz1                       = local intType "sz1"
 
       zero                      = constOp $ num int 0
   in
