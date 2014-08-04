@@ -117,11 +117,22 @@ mkPermute aenv combine permute IRDelayed{..} =
                 $bbsM:(dst .=. intOfIndex shOut ix')   ;; index of result array
 
                 ;; The thread spins waiting for this slot of the output array to become
-                ;; unlocked. It takes the associated flag, write-combines its results, and
-                ;; returns the lock.
+                ;; unlocked. The thread spins waiting for the lock to be released, which is the
+                ;; worst possible setup in a highly contented environment.
+                ;;
+                ;; However, since the thread attempts to acquire the lock in a loop without
+                ;; trying to write anything until the value changes, because of MESI caching
+                ;; protocols this should cause the cache line the lock is on to become "Shared".
+                ;; If this is the case, then there is remarkably _no_ bus traffic while the CPU
+                ;; waits for the lock. This optimisation is effective on all CPU architectures
+                ;; that have a cache per CPU.
                 %baddr = getelementptr i8* $opr:barrier, $type:intType $opr:dst
                 %c2 = i1 true
                 while %c2 {
+                    ;; Atomically set the slot to the locked state, returning the old state. If
+                    ;; the slot was unlocked we just acquired it, otherwise the state remains
+                    ;; unchanged (previously locked) and we need to spin until it becomes
+                    ;; unlocked.
                     %lock = atomicrmw volatile xchg i8* %baddr, i8 1 acquire
                     %c2 = icmp eq i8 %lock, 0
                 }
@@ -131,6 +142,10 @@ mkPermute aenv combine permute IRDelayed{..} =
                 $bbsM:(val .=. combine new old)
                 $bbsM:(writeArray arrOut dst val)
 
+                ;; Later x86 architectures can release the lock safely by using an unlocked
+                ;; MOV instruction rather than the slower locked XCHG. This is due to subtle
+                ;; memory ordering rules which allow this, even though MOV is not a full
+                ;; memory barrier.
                 store atomic volatile i8 0, i8* %baddr release, align 0
             }
         }
@@ -138,56 +153,8 @@ mkPermute aenv combine permute IRDelayed{..} =
     }|]
 
 
--- Execute the given action only when the lock at the given array and index can
--- be taken. The thread spins waiting for the lock to be released, which is the
--- worst possible setup in a highly contented environment.
---
--- However, since the thread attempts to acquire the lock in a loop without
--- trying to write anything until the value changes, because of MESI caching
--- protocols this should cause the cache line the lock is on to become "Shared".
--- If this is the case, then there is remarkably _no_ bus traffic while the CPU
--- waits for the lock. This optimisation is effective on all CPU architectures
--- that have a cache per CPU.
---
-spinlock :: [Operand] -> Operand -> CodeGen a -> CodeGen (a, Block)
-spinlock barrier' i action =
-  let
-      [barrier] = barrier'
-      word8     = integralType :: IntegralType Word8
-      locked    = constOp (integral word8 1)
-      unlocked  = constOp (integral word8 0)
-  in do
-  loop  <- newBlock "spinlock.entry"
-  done  <- newBlock "spinlock.critical-section"
-
-  addr  <- instr (ptr (typeOf word8)) $ GetElementPtr False barrier [i] []
-  _     <- br loop
-  setBlock loop
-
-  -- Atomically set the slot to the locked state, returning the old state. If
-  -- the slot was unlocked we just acquired it, otherwise the state remains
-  -- unchanged (previously locked) and we need to spin until it becomes
-  -- unlocked.
-  --
-  old   <- instr (typeOf word8) $ AtomicRMW True Xchg addr locked (Atomicity True Acquire) []
-  c     <- eq (scalarType :: ScalarType Word8) old locked
-  _     <- cbr c loop done
-
-  -- Later x86 architectures can release the lock safely by using an unlocked
-  -- MOV instruction rather than the slower locked XCHG. This is due to subtle
-  -- memory ordering rules which allow this, even though MOV is not a full
-  -- memory barrier.
-  --
-  setBlock done
-  res   <- action
-  do_    $ Store True addr unlocked (Just $ Atomicity True Release) (fromIntegral $ S.alignment (undefined::Word8)) []
-
-  return (res, done)
-
-
 -- Apply the function (f :: a -> Bool) to each argument. If any application
--- returns false, jump to the exit block, the label of which is supplied as the
--- return value
+-- returns false, return false. Otherwise return true.
 --
 all :: (a -> CodeGen Operand) -> [a] -> CodeGen Operand
 all = go true
