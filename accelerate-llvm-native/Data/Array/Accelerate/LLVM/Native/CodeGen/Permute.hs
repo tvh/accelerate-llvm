@@ -4,6 +4,7 @@
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE QuasiQuotes         #-}
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.Native.CodeGen.Permute
 -- Copyright   : [2014] Trevor L. McDonell, Sean Lee, Vinod Grover, NVIDIA Corporation
@@ -21,6 +22,7 @@ module Data.Array.Accelerate.LLVM.Native.CodeGen.Permute
 import LLVM.General.AST
 import LLVM.General.AST.RMWOperation
 import LLVM.General.AST.Type (ptr)
+import LLVM.General.Quote.LLVM
 
 -- accelerate
 import Data.Array.Accelerate.Type
@@ -75,37 +77,65 @@ mkPermute aenv combine permute IRDelayed{..} =
       shOut                     = arrayShapeOp (undefined::Array sh' e) "out"
       paramOut                  = arrayParam   (undefined::Array sh' e) "out"
       paramEnv                  = envParam aenv
+      intType                   = typeOf (integralType :: IntegralType Int)
+      i1                        = typeOf (scalarType :: ScalarType Bool)
 
       shIn                      = arrayShapeOp (undefined::Array sh e) ""
 
       ignore                    = map (constOp . integral integralType)
                                 $ Sugar.shapeToList (Sugar.ignore :: sh')
 
-      barrier                   = arrayDataOp (undefined::Vector Word8) "barrier"
+      [barrier]                 = arrayDataOp (undefined::Vector Word8) "barrier"
       paramBarrier              = arrayParam (undefined::Vector Word8) "barrier"
-  in do
-  makeKernel "permute" (paramGang ++ paramBarrier ++ paramOut ++ paramEnv) $ do
-    imapFromTo start end $ \i -> do
-      ix   <- indexOfInt shIn i                 -- convert to multidimensional index
-      ix'  <- permute ix                        -- apply backwards index permutation
 
-      -- If this index will not be used, jump immediately to the exit
-      exit <- all (uncurry (neq int)) (zip ix' ignore)
-      dst  <- intOfIndex shOut ix'              -- index of result array
+      i                         = local intType "i"
+      ix                        = locals (undefined::sh) "ix"
+      ix'                       = locals (undefined::sh) "ix'"
+      c1                        = local i1 "c1"
+      dst                       = local intType "dst"
+      old                       = locals (undefined::e) "old"
+      new                       = locals (undefined::e) "new"
+      val                       = locals (undefined::e) "val"
+  in
+  makeKernelQ "permute" [llgM|
+    define void @permute
+    (
+        $params:paramGang,
+        $params:paramBarrier,
+        $params:paramOut,
+        $params:paramEnv
+    )
+    {
+        for $type:intType %i in $opr:start to $opr:end
+        {
+            $bbsM:(ix .=. indexOfInt shOut i)          ;; convert to multidimensional index
+            $bbsM:(ix' .=. permute ix)                 ;; apply index permutation
 
-      -- The thread spins waiting for this slot of the output array to become
-      -- unlocked. It takes the associated flag, write-combines its results, and
-      -- returns the lock.
-      _    <- spinlock barrier dst $ do
-        old     <- readArray arrOut dst
-        new     <- delayedLinearIndex [i]
-        val     <- combine new old
-        writeArray arrOut dst val
+            ;; If this index will not be used, jump immediately to the exit
+            $bbsM:(c1 .=. all (uncurry (neq int)) (zip ix' ignore))
+            if %c1 {
+                $bbsM:(dst .=. intOfIndex shOut ix')   ;; index of result array
 
-      _    <- br exit
-      setBlock exit
+                ;; The thread spins waiting for this slot of the output array to become
+                ;; unlocked. It takes the associated flag, write-combines its results, and
+                ;; returns the lock.
+                %baddr = getelementptr i8* $opr:barrier, $type:intType $opr:dst
+                %c2 = i1 true
+                while %c2 {
+                    %lock = atomicrmw volatile xchg i8* %baddr, i8 1 acquire
+                    %c2 = icmp eq i8 %lock, 0
+                }
 
-    return_
+                $bbsM:(old .=. readArray arrOut dst)
+                $bbsM:(new .=. delayedLinearIndex [i])
+                $bbsM:(val .=. combine new old)
+                $bbsM:(writeArray arrOut dst val)
+
+                store atomic volatile i8 0, i8* %baddr release, align 0
+            }
+        }
+        ret void
+    }|]
 
 
 -- Execute the given action only when the lock at the given array and index can
@@ -159,16 +189,17 @@ spinlock barrier' i action =
 -- returns false, jump to the exit block, the label of which is supplied as the
 -- return value
 --
-all :: forall a. (a -> CodeGen Operand) -> [a] -> CodeGen Block
-all f args = do
-  exit  <- newBlock "all.exit"
+all :: (a -> CodeGen Operand) -> [a] -> CodeGen Operand
+all = go true
+  where
+    i1 = scalarType :: ScalarType Bool
 
-  let go :: Int -> a -> CodeGen ()
-      go n x = do next <- newBlock ("all.and" ++ show n)
-                  c    <- f x
-                  _    <- cbr c next exit
-                  setBlock next
+    true :: Operand
+    true = constOp $ scalar i1 True
 
-  zipWithM_ go [0..] args
-  return exit
-
+    go :: Operand -> (a -> CodeGen Operand) -> [a] -> CodeGen Operand
+    go b _ []     = return b
+    go b f (x:xs) = do
+      x' <- f x
+      b' <- land b x'
+      go b' f xs
