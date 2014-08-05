@@ -43,7 +43,7 @@ stencilAccess
 stencilAccess _ _ sh arr bndy ix = do
   let off     = offsets (undefined :: Fun aenv (stencil -> a))
                         (undefined :: OpenAcc aenv (Array sh a))
-      off'    = map (map (constOp . num int) . reverse . shapeToList) off
+      off'    = map (reverse . shapeToList) off
   stencil <- mapM (access bndy sh ix arr) off'
   return $ concat stencil
 
@@ -52,27 +52,32 @@ access
   -> [Operand]
   -> [Operand]
   -> [Operand]
-  -> [Operand]
+  -> [Int]
   -> CodeGen [Operand]
-access bndy sh ix arr off = do
-  ix' <- zipWithM (add int) ix off
-  let op = case bndy of
-        Constant as -> Left as
-        Clamp       -> Right clamp
-        Mirror      -> Right mirror
-        Wrap        -> Right wrap
-  case op of
-    Left as -> do
-      as'       <- as
-      c         <- inRange sh ix'
-      ix''      <- wrap sh ix'
-      i         <- intOfIndex sh ix''
-      xs        <- readArray arr i
-      zipWithM (\a x -> instr (typeOfOperand a) $ Select c x a []) as' xs
-    Right op' -> do
-      ix'' <- op' sh ix'
-      i <- intOfIndex sh ix''
+access bndy sh ix arr off =
+  if all (==0) off
+    then do
+      i <- intOfIndex sh ix
       readArray arr i
+    else do
+      ix' <- zipWithM (add int . (constOp . num int)) off ix
+      let op = case bndy of
+            Constant as -> Left as
+            Clamp       -> Right clamp
+            Mirror      -> Right mirror
+            Wrap        -> Right wrap
+      case op of
+        Left as -> do
+          as'       <- as
+          c         <- inRange sh ix'
+          ix''      <- wrap sh ix'
+          i         <- intOfIndex sh ix''
+          xs        <- readArray arr i
+          zipWithM (\a x -> instr (typeOfOperand a) $ Select c x a []) as' xs
+        Right op' -> do
+          ix'' <- op' sh ix'
+          i <- intOfIndex sh ix''
+          readArray arr i
 
 
 -- Test whether an index lies within the boundaries of a shape (first argument)
