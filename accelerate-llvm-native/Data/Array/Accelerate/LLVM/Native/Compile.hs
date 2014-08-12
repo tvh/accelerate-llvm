@@ -47,6 +47,7 @@ import Data.Array.Accelerate.LLVM.Native.CodeGen                ( )
 import qualified Data.Array.Accelerate.LLVM.Native.Debug        as Debug
 
 -- standard library
+import Control.Monad.Cont
 import Control.Monad.Except
 import Control.Monad.State
 import Data.Maybe
@@ -87,24 +88,27 @@ compileForNativeTarget acc aenv = do
   -- sometimes lead to a segfault. Instead, the worker thread runs in a new
   -- 'withContext'.
   --
-  fun <- liftIO . startFunction $ \loop ->
-    withContext                          $ \ctx     ->
-    runError $ withModuleFromAST ctx ast $ \mdl     ->
-    runError $ withNativeTargetMachine   $ \machine ->
-      withTargetLibraryInfo triple       $ \libinfo -> do
-        optimiseModule datalayout (Just machine) (Just libinfo) mdl
+  fun <- liftIO . startFunction $ do
+    ctx     <- ContT withContext
+    mdl     <- runErrorCont $ withModuleFromAST ctx ast
+    machine <- runErrorCont withNativeTargetMachine
+    libinfo <- ContT $ withTargetLibraryInfo triple
 
-        Debug.when Debug.verbose $ do
-          Debug.message Debug.dump_llvm =<< moduleLLVMAssembly mdl
-          Debug.message Debug.dump_asm  =<< runError (moduleTargetAssembly machine mdl)
+    liftIO $ optimiseModule datalayout (Just machine) (Just libinfo) mdl
 
-        withMCJIT ctx opt model ptrelim fast $ \mcjit -> do
-         withModuleInEngine mcjit mdl        $ \exe   -> do
-          funs <- getGlobalFunctions ast exe
-          loop funs
+    liftIO $ Debug.when Debug.verbose $ do
+      Debug.message Debug.dump_llvm =<< moduleLLVMAssembly mdl
+      Debug.message Debug.dump_asm  =<< runError (moduleTargetAssembly machine mdl)
+
+    mcjit <- ContT $ withMCJIT ctx opt model ptrelim fast
+    exe   <- ContT $ withModuleInEngine mcjit mdl
+    liftIO $ getGlobalFunctions ast exe
 
   return $! NativeR fun
   where
+    runErrorCont :: ((a -> IO r) -> ExceptT String IO r) -> ContT r IO a
+    runErrorCont c = ContT $ \f -> runError $ c f
+
     runError    = either ($internalError "compileForNativeTarget") return <=< runExceptT
 
     opt         = Just 3        -- optimisation level

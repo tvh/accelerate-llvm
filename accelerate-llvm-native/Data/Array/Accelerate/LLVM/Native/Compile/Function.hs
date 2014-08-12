@@ -27,6 +27,7 @@ import qualified Data.Array.Accelerate.LLVM.Native.Debug        as Debug
 import Control.Concurrent
 import Data.List
 import Foreign.Ptr
+import Control.Monad.Cont
 
 
 -- | The 'Req' type encapsulates a request to execute the JIT compiled function
@@ -105,7 +106,7 @@ executeNamedFunction Function{..} name run =
 -- then waits for requests to execute the compiled functions.
 --
 startFunction
-    :: (([(String, FunPtr ())] -> IO ()) -> IO ())
+    :: ContT () IO [(String, FunPtr ())]
     -> IO Function
 startFunction withFunctions = do
 
@@ -119,9 +120,10 @@ startFunction withFunctions = do
   _       <- mkWeakMVar varReq  (finaliseFunction varReq varDone)
   _       <- mkWeakMVar varDone (finaliseFunction varReq varDone)
 
-  _       <- forkIO $ withFunctions $ \f -> do
-    putMVar varFun f
-    functionLoop varReq varDone
+  _       <- forkIO $ flip runContT return $ do
+    f <- withFunctions
+    liftIO $ putMVar varFun f
+    liftIO $ functionLoop varReq varDone
 
   -- The below use of 'unsafePerformIO' might be possible to allow the main
   -- thread to continue while the lowering to LLVM happens in the background.
