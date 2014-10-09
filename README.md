@@ -77,13 +77,13 @@ These are some TODOs and notes that pop into my head from time to time...
 - [x] reshape
 - [x] fold (multidimensional)
 - [x] foldAll (parallel optimisation)
-- [ ] scanl, scanr
-- [ ] scanl1, scanr1
-- [ ] scanl', scanr'
-- [ ] foldSeg
+- [x] scanl, scanr
+- [x] scanl1, scanr1
+- [x] scanl', scanr'
+- [x] foldSeg
 - [x] permute
-- [ ] stencil
-- [ ] stencil2
+- [x] stencil
+- [x] stencil2
 - [ ] foreign functions
 
 
